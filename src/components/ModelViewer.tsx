@@ -62,10 +62,11 @@ export function ModelViewer({
     <div
       ref={containerRef}
       id={captureId}
-      className="relative min-h-[420px] w-full flex-1 overflow-hidden rounded-xl border border-white/10 bg-gradient-to-b from-zinc-900 to-black md:min-h-0 md:h-full"
+      className="relative box-border h-full min-h-[240px] w-full flex-1 overflow-hidden rounded-xl border border-white/10 bg-gradient-to-b from-zinc-900 to-black md:min-h-0"
     >
       <Canvas
         key={hoodie.modelUrl ?? "static"}
+        className="touch-none"
         shadows
         camera={{ position: [0, 0.65, 3.2], fov: 45, near: 0.1, far: 100 }}
         gl={{
@@ -75,6 +76,7 @@ export function ModelViewer({
           powerPreference: "high-performance",
         }}
         dpr={[1, 2]}
+        resize={{ offsetSize: true, debounce: { scroll: 0, resize: 0 } }}
       >
         <color attach="background" args={["#0c0f14"]} />
         <Scene {...hoodie} orbitRef={orbitRef} isLogoPlacementMode={isLogoPlacementMode} />

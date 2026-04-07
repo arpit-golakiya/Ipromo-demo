@@ -14,7 +14,7 @@ const ModelViewer = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="flex min-h-[420px] flex-1 items-center justify-center rounded-xl border border-white/10 bg-zinc-900 text-sm text-zinc-500">
+      <div className="flex h-full min-h-[280px] w-full items-center justify-center rounded-xl border border-white/10 bg-zinc-900 text-sm text-zinc-500 max-md:min-h-[min(52dvh,580px)] md:min-h-[420px]">
         Loading 3D viewer…
       </div>
     ),
@@ -62,7 +62,7 @@ export default function Configurator() {
   }, [setDecal]);
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-[1600px] flex-col gap-4 p-4 md:flex-row md:gap-6 md:p-6">
+    <main className="mx-auto flex min-h-screen max-w-[1600px] flex-col gap-4 p-3 sm:p-4 md:flex-row md:gap-6 md:p-6">
       <div className="w-full shrink-0 md:w-[380px]">
         <ControlsPanel
           productName={productName}
@@ -93,7 +93,7 @@ export default function Configurator() {
           captureElementId={CAPTURE_ID}
         />
       </div>
-      <div className="flex min-h-[max(420px,60vh)] flex-1 flex-col md:min-h-[min(70vh,720px)]">
+      <div className="flex min-h-0 w-full flex-col max-md:h-[min(52dvh,580px)] max-md:min-h-[280px] max-md:flex-shrink-0 md:min-h-[min(70vh,720px)] md:flex-1">
         <ModelViewer
           captureId={CAPTURE_ID}
           color={color}

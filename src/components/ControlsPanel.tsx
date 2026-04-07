@@ -247,7 +247,7 @@ export function ControlsPanel({
   const rotateDeg = Math.round((decal.rotation[2] * 180) / Math.PI);
 
   return (
-    <aside className="flex h-full min-h-0 flex-col gap-5 overflow-y-auto rounded-xl border border-white/10 bg-zinc-900/80 p-5 shadow-xl backdrop-blur-sm">
+    <aside className="flex h-auto min-h-0 flex-col gap-4 overflow-visible rounded-xl border border-white/10 bg-zinc-900/80 p-4 shadow-xl backdrop-blur-sm sm:gap-5 sm:p-5 md:h-full md:overflow-y-auto">
       <header>
         <h1 className="text-lg font-semibold tracking-tight text-white">
           {productName}
@@ -263,7 +263,7 @@ export function ControlsPanel({
         <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
           iPromo Product URL
         </span>
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <input
             type="url"
             value={displayUrl}
@@ -278,7 +278,7 @@ export function ControlsPanel({
             type="button"
             disabled={isLoadingProduct || !displayUrl.trim()}
             onClick={() => onLoadProduct(displayUrl)}
-            className="shrink-0 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+            className="w-full shrink-0 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
           >
             {isLoadingProduct ? (
               <span className="flex items-center gap-1.5">

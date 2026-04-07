@@ -10,7 +10,7 @@ import type { MeshyTaskStatus } from "@/app/api/meshy/status/route";
 
 const DEFAULT_PRODUCT_NAME = "Custom Hoodie";
 
-/** Whitelist Meshy task ids in the URL (avoids odd characters / oversize query). */
+/** Accept only share-safe Meshy task ids (keeps URLs predictable and small). */
 function parseShareTaskId(raw: string | null): string | null {
   if (raw == null || raw === "") return null;
   const id = raw.trim();
@@ -55,15 +55,7 @@ function readDecalFromParams(sp: URLSearchParams): DecalConfig {
   };
 }
 
-/**
- * Central configurator state (client-only).
- *
- * Initial values are read once from `window.location.search` on mount — not from
- * `useSearchParams()`, because Next can churn that hook when the address bar changes
- * and remounting/reconciling the tree breaks the WebGL canvas. Share links still work
- * on full page loads; logo is in the URL hash so the server request stays small (avoids HTTP 431).
- * Generated Meshy models are referenced by `taskId` in the query string.
- */
+/** Central configurator state; we hydrate once from `window.location` to avoid Next remounts that can break WebGL. */
 export function useConfiguratorState() {
   const [color, setColor] = useState("#4a6fa5");
   const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null);
@@ -71,7 +63,7 @@ export function useConfiguratorState() {
   const [displayUrl, setDisplayUrl] = useState("");
   const [isLogoPlacementMode, setIsLogoPlacementMode] = useState(false);
 
-  // Product scraping state
+  // Scraped PDP metadata (optional; used to seed color/images).
   const [productName, setProductName] = useState(DEFAULT_PRODUCT_NAME);
   const [scrapedColors, setScrapedColors] = useState<ScrapedProduct["colors"]>([]);
   /** True after a successful `/api/scrape` load (even if the PDP lists no colors). */
@@ -80,7 +72,7 @@ export function useConfiguratorState() {
   const [isLoadingProduct, setIsLoadingProduct] = useState(false);
   const [productLoadError, setProductLoadError] = useState<string | null>(null);
 
-  // 3D model generation state (restore Meshy job from share link immediately on client)
+  // 3D generation state (taskId can be restored from share links on first mount).
   const [generatedModelTaskId, setGeneratedModelTaskId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     return parseShareTaskId(new URLSearchParams(window.location.search).get("taskId"));
@@ -112,7 +104,7 @@ export function useConfiguratorState() {
     const logo =
       hashParams.get("logo") ?? sp.get("logo");
     if (logo && logo.startsWith("data:image")) {
-      setLogoDataUrl(logo);  // direct setter — no placement mode reset needed on initial load
+      setLogoDataUrl(logo); // Direct setter on initial hydrate (don’t toggle placement mode here).
     }
     if (hasDecalParams(sp)) {
       setDecal(readDecalFromParams(sp));
@@ -155,7 +147,7 @@ export function useConfiguratorState() {
     if (!url.trim()) return;
     setIsLoadingProduct(true);
     setProductLoadError(null);
-    // Reset any previously generated model when loading a new product
+    // Loading a new PDP invalidates any previously generated model.
     if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
     setGeneratedModelTaskId(null);
     setIsGeneratingModel(false);
@@ -233,11 +225,11 @@ export function useConfiguratorState() {
             setModelGenerationError(status.error || "3D generation failed — try a different image");
             setIsGeneratingModel(false);
           } else {
-            // Still PENDING or IN_PROGRESS — poll again after 4 s
+            // Still running — poll again after 4s.
             pollTimerRef.current = setTimeout(poll, 4000);
           }
         } catch {
-          // Network hiccup — retry after a longer delay
+          // Transient network hiccup — retry with backoff.
           pollTimerRef.current = setTimeout(poll, 8000);
         }
       };
@@ -257,7 +249,7 @@ export function useConfiguratorState() {
     setModelGenerationError(null);
   }, [stopPolling]);
 
-  // Stop polling when the hook unmounts
+  // Always stop polling on unmount.
   useEffect(() => {
     return () => stopPolling();
   }, [stopPolling]);
@@ -271,7 +263,7 @@ export function useConfiguratorState() {
     }
   }, [buildShareHref]);
 
-  // The proxy URL for the generated model (null = use the bundled default GLB)
+  // Proxy URL for the generated model (null => fall back to bundled GLB).
   const generatedModelUrl = generatedModelTaskId
     ? `/api/meshy/model?taskId=${encodeURIComponent(generatedModelTaskId)}`
     : null;

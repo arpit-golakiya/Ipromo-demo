@@ -25,11 +25,7 @@ type FlatMesh = {
   matrixWorld: THREE.Matrix4;
 };
 
-/**
- * Collect mesh world matrices so we can render each mesh as a top-level `<mesh>`
- * with `matrixWorld` + `matrixAutoUpdate={false}`. That lets us attach `<Decal>`
- * as a direct child of the body mesh (required by drei).
- */
+/** Snapshot world matrices so each mesh can render as a top-level identity child (drei `Decal` expects this). */
 function flattenMeshes(root: THREE.Object3D): FlatMesh[] {
   root.updateMatrixWorld(true);
   const out: FlatMesh[] = [];
@@ -46,10 +42,7 @@ function flattenMeshes(root: THREE.Object3D): FlatMesh[] {
   return out;
 }
 
-/**
- * Uniform scale + offset so the model fits ~2.2 units (camera expects ~2–3 unit subjects).
- * Done in useMemo so rapid React re-renders do not fight Resize/Center layout effects.
- */
+/** Uniform scale + offset to fit the camera framing (~2–3 units), memoized to avoid reflow fights during rerenders. */
 function normalizedDisplayRoot(scene: THREE.Object3D): THREE.Object3D {
   const root = scene.clone(true);
   const box = new THREE.Box3().setFromObject(root);
@@ -65,10 +58,7 @@ function normalizedDisplayRoot(scene: THREE.Object3D): THREE.Object3D {
   return root;
 }
 
-/**
- * Pick the main visible shell: prefer **most triangles**, then largest world radius.
- * World-radius alone often selects an interior collider or tiny trim piece.
- */
+/** Pick the main visible shell (most triangles first; world-radius as tie-breaker to avoid trim/collider picks). */
 function pickDecalMeshIndex(meshes: FlatMesh[]): number {
   let best = -1;
   let bestCount = -1;
@@ -92,9 +82,7 @@ function pickDecalMeshIndex(meshes: FlatMesh[]): number {
   return best >= 0 ? best : 0;
 }
 
-/**
- * Decode via HTMLImageElement so pixels exist before we mount drei/Decal (avoids empty uploads).
- */
+/** Decode via `HTMLImageElement` so pixels exist before mounting `Decal` (prevents blank textures). */
 function useLogoTexture(logoDataUrl: string | null): {
   texture: THREE.Texture | null;
   loadGeneration: number;
@@ -165,10 +153,7 @@ export type HoodieModelProps = {
   modelUrl?: string;
 };
 
-/**
- * Loads the GLB once via useGLTF, applies hoodie color to all materials,
- * and projects an optional logo with `Decal` on the largest mesh (chest area).
- */
+/** Load the GLB, tint materials, and (optionally) project the logo via `Decal` onto the primary shell mesh. */
 export function HoodieModel({
   color,
   logoDataUrl,
@@ -207,11 +192,7 @@ export function HoodieModel({
   const { texture: logoMap, loadGeneration: logoLoadGen, aspectRatio: logoAspect } =
     useLogoTexture(logoDataUrl);
 
-  /**
-   * Bounding box of the decal mesh geometry in its own local space.
-   * Used to convert normalized [0..1] decal coords ↔ actual local-space coords,
-   * so the defaults work for any GLB regardless of unit scale.
-   */
+  /** Decal-mesh local bbox lets us store decal transforms as normalized [0..1] so share links survive GLB unit changes. */
   const decalGeoBBox = useMemo(() => {
     if (flatMeshes.length === 0) return null;
     const geo = flatMeshes[decalMeshIndex].geometry;
@@ -283,8 +264,7 @@ export function HoodieModel({
       localHit.current.copy(hits[0].point);
       mesh.worldToLocal(localHit.current);
 
-      // Align decal plane to the local surface normal to reduce stretching on curved areas
-      // (e.g. sleeves). Keep user's Z rotation as "twist" for fine tuning.
+      // Align to local surface normal to reduce stretching on curved areas; keep Z as the user-controlled “twist”.
       if (hits[0].face?.normal) {
         localFaceNormal.current.copy(hits[0].face.normal).normalize();
       } else {
@@ -360,7 +340,7 @@ export function HoodieModel({
     ],
   );
 
-  // Apply tint to every mesh material (shared refs — one update affects all uses).
+  // Tint every mesh material (shared refs, so one write updates all instances).
   useEffect(() => {
     const c = new THREE.Color(color);
     scene.traverse((obj) => {
@@ -400,12 +380,7 @@ export function HoodieModel({
           matrix={m.matrixWorld}
           matrixAutoUpdate={false}
         >
-          {/*
-            World transform lives on the group. The inner mesh stays at identity so
-            drei's Decal (it temporarily forces parent.matrixWorld = I while building
-            DecalGeometry) matches BufferGeometry in local space — fixes invisible decals
-            when matrix was set directly on the same mesh.
-          */}
+          {/* Keep the mesh at identity (world transform on the group) so drei `Decal` builds geometry in the correct local space. */}
           <mesh
             ref={index === decalMeshIndex ? decalMeshRef : undefined}
             geometry={m.geometry}
@@ -425,14 +400,12 @@ export function HoodieModel({
                 map={logoMap}
                 renderOrder={10}
                 {...{
-                  // depthTest ON so back-facing hoodie geometry properly occludes
-                  // the decal — prevents logo bleeding through to the back.
+                  // depthTest ON so back-facing geometry occludes (prevents logo “bleeding” through).
                   "material-depthTest": true,
                   "material-depthWrite": false,
-                  // FrontSide only — never draw on back-facing triangles.
+                  // FrontSide only (never draw on back-facing triangles).
                   "material-side": THREE.FrontSide,
-                  // Polygon offset pushes the decal just in front of the surface
-                  // to avoid z-fighting without disabling depth testing.
+                  // Polygon offset reduces z-fighting without disabling depth testing.
                   "material-polygonOffset": true,
                   "material-polygonOffsetFactor": -1,
                   "material-polygonOffsetUnits": -4,

@@ -83,11 +83,17 @@ export function useConfiguratorState() {
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const hydratedFromUrl = useRef(false);
+  const hydratedFromShare = useRef(false);
 
   const setLogoDataUrlWithReset = useCallback(
     (url: string | null) => {
       setLogoDataUrl(url);
-      if (!url) setIsLogoPlacementMode(false);
+      if (!url) {
+        setIsLogoPlacementMode(false);
+        return;
+      }
+      // Always start new uploads at the default placement.
+      setDecal(DEFAULT_DECAL);
     },
     [],
   );
@@ -108,6 +114,42 @@ export function useConfiguratorState() {
     }
     if (hasDecalParams(sp)) {
       setDecal(readDecalFromParams(sp));
+    }
+  }, []);
+
+  const loadFromShareId = useCallback(async (shareId: string) => {
+    if (!shareId || hydratedFromShare.current) return;
+    hydratedFromShare.current = true;
+    try {
+      const res = await fetch(`/api/share?id=${encodeURIComponent(shareId)}`);
+      const data: {
+        payload?: {
+          v: 1;
+          productName: string;
+          color: string;
+          decal: DecalConfig;
+          taskId: string | null;
+          logoDataUrl: string | null;
+        };
+        logo_url?: string | null;
+        error?: string;
+      } = await res.json();
+
+      if (!res.ok || data.error || !data.payload) return;
+
+      const p = data.payload;
+      if (p.v !== 1) return;
+      setProductName(p.productName || DEFAULT_PRODUCT_NAME);
+      if (p.color) setColor(p.color);
+      if (p.decal) setDecal(p.decal);
+      setGeneratedModelTaskId(parseShareTaskId(p.taskId));
+      if (p.logoDataUrl && p.logoDataUrl.startsWith("data:image")) {
+        setLogoDataUrl(p.logoDataUrl);
+      } else {
+        setLogoDataUrl(null);
+      }
+    } catch {
+      // ignore — user can still use the app without share hydration
     }
   }, []);
 
@@ -255,13 +297,34 @@ export function useConfiguratorState() {
   }, [stopPolling]);
 
   const copyShareLink = useCallback(async () => {
-    const full = buildShareHref();
+    // Prefer a short URL backed by Supabase. If anything fails, fall back to the long URL.
+    let full = buildShareHref();
+    try {
+      const res = await fetch("/api/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          v: 1,
+          productName,
+          color,
+          decal,
+          taskId: generatedModelTaskId,
+          logoDataUrl,
+        }),
+      });
+      const data: { id?: string; error?: string } = await res.json();
+      if (res.ok && data.id) {
+        full = `${window.location.origin}/s/${data.id}`;
+      }
+    } catch {
+      /* keep fallback */
+    }
     try {
       await navigator.clipboard.writeText(full);
     } catch {
       window.prompt("Copy this link:", full);
     }
-  }, [buildShareHref]);
+  }, [buildShareHref, color, decal, generatedModelTaskId, logoDataUrl, productName]);
 
   // Proxy URL for the generated model (null => fall back to bundled GLB).
   const generatedModelUrl = generatedModelTaskId
@@ -296,5 +359,6 @@ export function useConfiguratorState() {
     shareUrl,
     copyShareLink,
     buildQueryString,
+    loadFromShareId,
   };
 }

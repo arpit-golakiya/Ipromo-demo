@@ -174,6 +174,7 @@ export function ControlsPanel({
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
   const [removeWhiteBg, setRemoveWhiteBg] = useState(true);
+  const [copied, setCopied] = useState(false);
 
   const showColorControls =
     !productLoadedFromScrape || scrapedColors.length > 0;
@@ -543,53 +544,9 @@ export function ControlsPanel({
           Logo on chest (decal)
         </span>
         <p className="text-xs text-zinc-500">
-          Fine-tune with sliders, or click{" "}
-          <span className="text-zinc-400">&quot;Drag logo on hoodie&quot;</span>{" "}
-          above to
-          drag it directly on the 3D surface.
+          Hold and drag on the product to move the logo. Use the sliders to
+          adjust rotation and size.
         </p>
-
-        {(
-          [
-            { label: "← →", title: "Horizontal" },
-            { label: "↑ ↓", title: "Vertical" },
-            { label: "⊙ Depth", title: "Front / Back" },
-          ] as const
-        ).map(({ label, title }, i) => (
-          <label key={title} className="flex items-center gap-2 text-xs text-zinc-400">
-            <span className="w-12 shrink-0" title={title}>{label}</span>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.005}
-              value={decal.position[i]}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                const next: [number, number, number] = [...decal.position];
-                next[i] = v;
-                // When moving through the hoodie via the Depth slider, Decal projection
-                // can mirror. Apply a one-time 180° Y correction when crossing sides
-                // so the logo stays readable instead of "auto flipping" later.
-                if (i === 2) {
-                  const wasBack = decal.position[2] < 0.5;
-                  const isBack = v < 0.5;
-                  if (wasBack !== isBack) {
-                    const rNext: [number, number, number] = [...decal.rotation];
-                    rNext[1] += isBack ? Math.PI : -Math.PI;
-                    setDecalPartial({ position: next, rotation: rNext });
-                    return;
-                  }
-                }
-                setDecalPartial({ position: next });
-              }}
-              className="flex-1 accent-blue-500"
-            />
-            <span className="w-10 text-right font-mono text-zinc-500">
-              {Math.round(decal.position[i] * 100)}%
-            </span>
-          </label>
-        ))}
 
         <label className="flex items-center gap-2 text-xs text-zinc-400">
           <span className="w-12 shrink-0">Rotate</span>
@@ -635,10 +592,14 @@ export function ControlsPanel({
       <div className="mt-auto flex flex-col gap-2 border-t border-white/10 pt-4">
         <button
           type="button"
-          onClick={() => void onCopyShare()}
+          onClick={() => {
+            void onCopyShare();
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1800);
+          }}
           className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-500"
         >
-          Copy share link
+          {copied ? "Copied!" : "Copy share link"}
         </button>
         {shareTooLong ? (
           <p className="text-xs text-amber-400">

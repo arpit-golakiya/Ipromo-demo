@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { ControlsPanel } from "@/components/ControlsPanel";
 import { useConfiguratorState } from "@/hooks/useConfiguratorState";
 import type { DecalConfig } from "@/types/configurator";
@@ -28,7 +28,7 @@ const CAPTURE_ID = "configurator-viewer";
  * we intentionally do not call `history.replaceState` here — that desyncs Next's router
  * from the URL and can remount client trees, which tears down WebGL and shows a white canvas.
  */
-export default function Configurator() {
+export default function Configurator({ shareId }: { shareId?: string }) {
   const {
     productName,
     color,
@@ -55,7 +55,15 @@ export default function Configurator() {
     resetGeneratedModel,
     shareUrl,
     copyShareLink,
+    loadFromShareId,
   } = useConfiguratorState();
+
+  // If this page is /s/[id], hydrate state from Supabase once.
+  // (This runs client-side and doesn’t force Next router URL mutations.)
+  useEffect(() => {
+    if (!shareId) return;
+    void loadFromShareId(shareId);
+  }, [loadFromShareId, shareId]);
 
   const onDecalChange = useCallback((next: DecalConfig) => {
     setDecal(next);

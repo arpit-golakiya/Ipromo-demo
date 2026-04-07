@@ -15,9 +15,8 @@ export type DecalConfig = {
 };
 
 export const DEFAULT_DECAL: DecalConfig = {
-  // Left chest (wearer's left = viewer's right): X shifted right of center to clear
-  // the zipper track, Y lowered slightly to sit below the quarter-zip pull area.
-  position: [0.65, 0.63, 0.90],
+  // Center chest default (matches iPromo "YOUR LOGO HERE" preview placement).
+  position: [0.5, 0.66, 0.9],
   rotation: [0, 0, 0],
   scale: 0.22,
 };

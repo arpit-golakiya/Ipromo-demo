@@ -42,6 +42,7 @@ export default function Configurator() {
     isLogoPlacementMode,
     setIsLogoPlacementMode,
     scrapedColors,
+    productLoadedFromScrape,
     scrapedImages,
     isLoadingProduct,
     productLoadError,
@@ -71,6 +72,7 @@ export default function Configurator() {
           isLoadingProduct={isLoadingProduct}
           productLoadError={productLoadError}
           scrapedColors={scrapedColors}
+          productLoadedFromScrape={productLoadedFromScrape}
           scrapedImages={scrapedImages}
           color={color}
           onColorChange={setColor}

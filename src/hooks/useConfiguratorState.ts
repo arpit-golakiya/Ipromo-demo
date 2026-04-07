@@ -10,6 +10,15 @@ import type { MeshyTaskStatus } from "@/app/api/meshy/status/route";
 
 const DEFAULT_PRODUCT_NAME = "Custom Hoodie";
 
+/** Whitelist Meshy task ids in the URL (avoids odd characters / oversize query). */
+function parseShareTaskId(raw: string | null): string | null {
+  if (raw == null || raw === "") return null;
+  const id = raw.trim();
+  if (id.length < 8 || id.length > 200) return null;
+  if (!/^[a-zA-Z0-9_.-]+$/.test(id)) return null;
+  return id;
+}
+
 function parseColor(param: string | null): string | null {
   if (!param) return null;
   const hex = param.startsWith("#") ? param : `#${param}`;
@@ -52,7 +61,8 @@ function readDecalFromParams(sp: URLSearchParams): DecalConfig {
  * Initial values are read once from `window.location.search` on mount — not from
  * `useSearchParams()`, because Next can churn that hook when the address bar changes
  * and remounting/reconciling the tree breaks the WebGL canvas. Share links still work
- * on full page loads; use "Copy share link" for the full query (including logo).
+ * on full page loads; logo is in the URL hash so the server request stays small (avoids HTTP 431).
+ * Generated Meshy models are referenced by `taskId` in the query string.
  */
 export function useConfiguratorState() {
   const [color, setColor] = useState("#4a6fa5");
@@ -64,12 +74,17 @@ export function useConfiguratorState() {
   // Product scraping state
   const [productName, setProductName] = useState(DEFAULT_PRODUCT_NAME);
   const [scrapedColors, setScrapedColors] = useState<ScrapedProduct["colors"]>([]);
+  /** True after a successful `/api/scrape` load (even if the PDP lists no colors). */
+  const [productLoadedFromScrape, setProductLoadedFromScrape] = useState(false);
   const [scrapedImages, setScrapedImages] = useState<string[]>([]);
   const [isLoadingProduct, setIsLoadingProduct] = useState(false);
   const [productLoadError, setProductLoadError] = useState<string | null>(null);
 
-  // 3D model generation state
-  const [generatedModelTaskId, setGeneratedModelTaskId] = useState<string | null>(null);
+  // 3D model generation state (restore Meshy job from share link immediately on client)
+  const [generatedModelTaskId, setGeneratedModelTaskId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return parseShareTaskId(new URLSearchParams(window.location.search).get("taskId"));
+  });
   const [isGeneratingModel, setIsGeneratingModel] = useState(false);
   const [modelGenerationProgress, setModelGenerationProgress] = useState(0);
   const [modelGenerationError, setModelGenerationError] = useState<string | null>(null);
@@ -91,7 +106,11 @@ export function useConfiguratorState() {
     const sp = new URLSearchParams(window.location.search);
     const c = parseColor(sp.get("c"));
     if (c) setColor(c);
-    const logo = sp.get("logo");
+    const hashParams = new URLSearchParams(
+      window.location.hash.replace(/^#/, ""),
+    );
+    const logo =
+      hashParams.get("logo") ?? sp.get("logo");
     if (logo && logo.startsWith("data:image")) {
       setLogoDataUrl(logo);  // direct setter — no placement mode reset needed on initial load
     }
@@ -100,31 +119,37 @@ export function useConfiguratorState() {
     }
   }, []);
 
-  const buildQueryString = useCallback(
-    (options?: { includeLogo: boolean }) => {
-      const includeLogo = options?.includeLogo ?? true;
-      const params = new URLSearchParams();
-      params.set("c", color.replace("#", ""));
-      params.set("dx", String(decal.position[0]));
-      params.set("dy", String(decal.position[1]));
-      params.set("dz", String(decal.position[2]));
-      params.set("ds", String(decal.scale));
-      params.set("rx", String(decal.rotation[0]));
-      params.set("ry", String(decal.rotation[1]));
-      params.set("rz", String(decal.rotation[2]));
-      if (includeLogo && logoDataUrl) {
-        params.set("logo", logoDataUrl);
-      }
-      return params.toString();
-    },
-    [color, decal, logoDataUrl],
-  );
+  /** Query only — logo is never appended here (see share URL hash) so GET requests stay small. */
+  const buildQueryString = useCallback(() => {
+    const params = new URLSearchParams();
+    params.set("c", color.replace("#", ""));
+    params.set("dx", String(decal.position[0]));
+    params.set("dy", String(decal.position[1]));
+    params.set("dz", String(decal.position[2]));
+    params.set("ds", String(decal.scale));
+    params.set("rx", String(decal.rotation[0]));
+    params.set("ry", String(decal.rotation[1]));
+    params.set("rz", String(decal.rotation[2]));
+    if (generatedModelTaskId) {
+      params.set("taskId", generatedModelTaskId);
+    }
+    return params.toString();
+  }, [color, decal, generatedModelTaskId]);
+
+  const buildShareHref = useCallback(() => {
+    const q = buildQueryString();
+    let href = `${window.location.origin}${window.location.pathname}?${q}`;
+    if (logoDataUrl) {
+      const hash = new URLSearchParams({ logo: logoDataUrl }).toString();
+      href += `#${hash}`;
+    }
+    return href;
+  }, [buildQueryString, logoDataUrl]);
 
   const shareUrl = useMemo(() => {
     if (typeof window === "undefined") return "";
-    const q = buildQueryString({ includeLogo: true });
-    return `${window.location.origin}${window.location.pathname}?${q}`;
-  }, [buildQueryString]);
+    return buildShareHref();
+  }, [buildShareHref]);
 
   const loadProductFromUrl = useCallback(async (url: string) => {
     if (!url.trim()) return;
@@ -145,6 +170,7 @@ export function useConfiguratorState() {
       }
       setProductName(data.name || DEFAULT_PRODUCT_NAME);
       setScrapedColors(data.colors ?? []);
+      setProductLoadedFromScrape(true);
       setScrapedImages(data.images ?? []);
       if (data.colors?.length > 0) {
         setColor(data.colors[0].hex);
@@ -237,16 +263,15 @@ export function useConfiguratorState() {
   }, [stopPolling]);
 
   const copyShareLink = useCallback(async () => {
-    const q = buildQueryString({ includeLogo: true });
-    const full = `${window.location.origin}${window.location.pathname}?${q}`;
+    const full = buildShareHref();
     try {
       await navigator.clipboard.writeText(full);
     } catch {
       window.prompt("Copy this link:", full);
     }
-  }, [buildQueryString]);
+  }, [buildShareHref]);
 
-  // The proxy URL for the generated model (null = use the bundled static model)
+  // The proxy URL for the generated model (null = use the bundled default GLB)
   const generatedModelUrl = generatedModelTaskId
     ? `/api/meshy/model?taskId=${encodeURIComponent(generatedModelTaskId)}`
     : null;
@@ -264,6 +289,7 @@ export function useConfiguratorState() {
     isLogoPlacementMode,
     setIsLogoPlacementMode,
     scrapedColors,
+    productLoadedFromScrape,
     scrapedImages,
     isLoadingProduct,
     productLoadError,

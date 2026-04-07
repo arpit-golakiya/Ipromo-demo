@@ -116,6 +116,8 @@ export type ControlsPanelProps = {
   isLoadingProduct: boolean;
   productLoadError: string | null;
   scrapedColors: ScrapedProduct["colors"];
+  /** After a successful scrape: hide color UI when the PDP returned no color variants. */
+  productLoadedFromScrape: boolean;
   scrapedImages: string[];
   color: string;
   onColorChange: (v: string) => void;
@@ -148,6 +150,7 @@ export function ControlsPanel({
   isLoadingProduct,
   productLoadError,
   scrapedColors,
+  productLoadedFromScrape,
   scrapedImages,
   color,
   onColorChange,
@@ -171,6 +174,11 @@ export function ControlsPanel({
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
   const [removeWhiteBg, setRemoveWhiteBg] = useState(true);
+
+  const showColorControls =
+    !productLoadedFromScrape || scrapedColors.length > 0;
+  const colorSwatches =
+    scrapedColors.length > 0 ? scrapedColors : PRESET_COLORS;
 
   // Auto-select the first scraped image whenever a new product is loaded
   useEffect(() => {
@@ -245,7 +253,8 @@ export function ControlsPanel({
           {productName}
         </h1>
         <p className="mt-1 text-sm text-zinc-400">
-          Paste an iPromo URL to load product colors, then add your logo.
+          Paste an iPromo URL to load the product, then add your logo. Color
+          swatches appear only when the page lists variants.
         </p>
       </header>
 
@@ -285,11 +294,20 @@ export function ControlsPanel({
         {productLoadError ? (
           <p className="text-xs text-red-400">{productLoadError}</p>
         ) : null}
-        {scrapedColors.length > 0 && !isLoadingProduct ? (
-          <p className="text-xs text-emerald-400">
-            ✓ Loaded — {scrapedColors.length} color{scrapedColors.length > 1 ? "s" : ""}
-            {scrapedImages.length > 0 ? `, ${scrapedImages.length} image${scrapedImages.length > 1 ? "s" : ""}` : ""} found
-          </p>
+        {productLoadedFromScrape && !isLoadingProduct ? (
+          scrapedColors.length > 0 ? (
+            <p className="text-xs text-emerald-400">
+              ✓ Loaded — {scrapedColors.length} color{scrapedColors.length > 1 ? "s" : ""}
+              {scrapedImages.length > 0
+                ? `, ${scrapedImages.length} image${scrapedImages.length > 1 ? "s" : ""}`
+                : ""}{" "}
+              found
+            </p>
+          ) : (
+            <p className="text-xs text-zinc-500">
+              ✓ Loaded — no color variants found on this page; model tint unchanged.
+            </p>
+          )
         ) : null}
       </div>
 
@@ -480,41 +498,45 @@ export function ControlsPanel({
         )}
       </div>
 
-      <div className="flex flex-col gap-2">
-        <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-          {scrapedColors.length > 0 ? "Product colors" : "Base color"}
-        </span>
-        <div className="flex flex-wrap gap-2">
-          {(scrapedColors.length > 0 ? scrapedColors : PRESET_COLORS).map((swatch) => (
-            <button
-              key={swatch.hex + swatch.label}
-              type="button"
-              title={swatch.label}
-              onClick={() => onColorChange(swatch.hex)}
-              className={`h-9 w-9 rounded-full border-2 transition ${
-                color.toLowerCase() === swatch.hex.toLowerCase()
-                  ? "border-white ring-2 ring-blue-500/60"
-                  : "border-white/20 hover:border-white/50"
-              }`}
-              style={{ backgroundColor: swatch.hex }}
-            />
-          ))}
+      {showColorControls ? (
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+            {scrapedColors.length > 0 ? "Product colors" : "Base color"}
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {colorSwatches.map((swatch) => (
+              <button
+                key={swatch.hex + swatch.label}
+                type="button"
+                title={swatch.label}
+                onClick={() => onColorChange(swatch.hex)}
+                className={`h-9 w-9 rounded-full border-2 transition ${
+                  color.toLowerCase() === swatch.hex.toLowerCase()
+                    ? "border-white ring-2 ring-blue-500/60"
+                    : "border-white/20 hover:border-white/50"
+                }`}
+                style={{ backgroundColor: swatch.hex }}
+              />
+            ))}
+          </div>
+          {scrapedColors.length > 0 ? (
+            <p className="text-xs text-zinc-500">
+              Hover a swatch to see its color name.
+            </p>
+          ) : null}
+          {scrapedColors.length === 0 ? (
+            <label className="mt-1 flex items-center gap-2 text-sm text-zinc-300">
+              <span className="text-zinc-500">Custom</span>
+              <input
+                type="color"
+                value={color}
+                onChange={(e) => onColorChange(e.target.value)}
+                className="h-9 w-14 cursor-pointer rounded border border-white/10 bg-transparent"
+              />
+            </label>
+          ) : null}
         </div>
-        {scrapedColors.length > 0 ? (
-          <p className="text-xs text-zinc-500">
-            Hover a swatch to see its color name.
-          </p>
-        ) : null}
-        <label className="mt-1 flex items-center gap-2 text-sm text-zinc-300">
-          <span className="text-zinc-500">Custom</span>
-          <input
-            type="color"
-            value={color}
-            onChange={(e) => onColorChange(e.target.value)}
-            className="h-9 w-14 cursor-pointer rounded border border-white/10 bg-transparent"
-          />
-        </label>
-      </div>
+      ) : null}
 
       <div className="flex flex-col gap-3 rounded-lg border border-white/5 bg-black/20 p-3">
         <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">

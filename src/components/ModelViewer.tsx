@@ -1,8 +1,9 @@
 "use client";
 
-import { OrbitControls } from "@react-three/drei";
+import { Environment, OrbitControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { Suspense, useRef, type RefObject } from "react";
+import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { HoodieModel, type HoodieModelProps } from "@/components/HoodieModel";
 
@@ -16,8 +17,11 @@ function Scene({
 }) {
   return (
     <>
-      <ambientLight intensity={0.9} />
-      <directionalLight position={[4, 6, 4]} intensity={0.35} />
+      {/* PBR models (like Meshy GLBs) often look black without environment lighting (IBL). */}
+      <Environment preset="studio" />
+      <ambientLight intensity={0.65} />
+      <directionalLight position={[4, 6, 4]} intensity={1.1} />
+      <directionalLight position={[-4, 2, -2]} intensity={0.45} />
       <Suspense fallback={null}>
         <HoodieModel
           {...hoodie}
@@ -70,6 +74,12 @@ export function ModelViewer({
         key={hoodie.modelUrl ?? "static"}
         className="touch-none"
         camera={{ position: [0, 0.65, 3.2], fov: 45, near: 0.1, far: 100 }}
+        onCreated={({ gl }) => {
+          // Make sure color management + tonemapping are appropriate for GLTF PBR materials.
+          gl.outputColorSpace = THREE.SRGBColorSpace;
+          gl.toneMapping = THREE.ACESFilmicToneMapping;
+          gl.toneMappingExposure = 1.05;
+        }}
         gl={{
           preserveDrawingBuffer: true,
           antialias: true,

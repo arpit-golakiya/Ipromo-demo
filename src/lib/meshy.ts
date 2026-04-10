@@ -43,18 +43,22 @@ export async function startMeshyTask(options: StartMeshyTaskOptions): Promise<st
     }
   }
 
+  // Meshy request payload (tuned for more consistent UV/material output and fewer "baked" shadows).
+  // Ref: https://docs.meshy.ai/en/api/image-to-3d
+  const payload = {
+    image_url: meshyImageUrl, // ✅ FIXED
+    ai_model: "meshy-6",
+    should_texture: false,
+    should_remesh: true
+  };
+
   const res = await fetch("https://api.meshy.ai/openapi/v1/image-to-3d", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      image_url: meshyImageUrl,
-      enable_pbr: true,
-      should_remesh: true,
-      should_texture: true,
-    }),
+    body: JSON.stringify(payload),
   });
 
   const data = await res.json();

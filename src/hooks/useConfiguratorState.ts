@@ -1,16 +1,31 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  DEFAULT_DECAL,
-  type DecalConfig,
-} from "@/types/configurator";
+import { DEFAULT_DECAL, type DecalConfig } from "@/types/configurator";
 import type { ScrapedProduct } from "@/app/api/scrape/route";
-import type { MeshyTaskStatus } from "@/app/api/meshy/status/route";
+import type { MeshyTaskStatus } from "@/lib/meshy";
 
 const DEFAULT_PRODUCT_NAME = "Custom Hoodie";
 
-/** Accept only share-safe Meshy task ids (keeps URLs predictable and small). */
+type GenerateBatchItemInput = {
+  key: string;
+  imageUrl: string;
+  colorLabel?: string;
+  colorHex?: string;
+};
+
+type GeneratedColorModel = {
+  key: string;
+  imageUrl: string;
+  colorLabel?: string;
+  colorHex?: string;
+  taskId: string | null;
+  status: "QUEUED" | "PENDING" | "IN_PROGRESS" | "SUCCEEDED" | "FAILED" | "EXPIRED";
+  progress: number;
+  error: string | null;
+  fromPreload?: boolean;
+};
+
 function parseShareTaskId(raw: string | null): string | null {
   if (raw == null || raw === "") return null;
   const id = raw.trim();
@@ -26,7 +41,6 @@ function parseColor(param: string | null): string | null {
   return null;
 }
 
-/** True if any decal-related query key is present. */
 function hasDecalParams(sp: URLSearchParams): boolean {
   return ["dx", "dy", "dz", "ds", "rx", "ry", "rz"].some(
     (k) => sp.get(k) != null && sp.get(k) !== "",
@@ -55,48 +69,46 @@ function readDecalFromParams(sp: URLSearchParams): DecalConfig {
   };
 }
 
-/** Central configurator state; we hydrate once from `window.location` to avoid Next remounts that can break WebGL. */
 export function useConfiguratorState() {
-  const [color, setColor] = useState("#4a6fa5");
+  const [color, setColor] = useState("#ffffff");
   const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null);
   const [decal, setDecal] = useState<DecalConfig>(DEFAULT_DECAL);
   const [displayUrl, setDisplayUrl] = useState("");
   const [isLogoPlacementMode, setIsLogoPlacementMode] = useState(false);
 
-  // Scraped PDP metadata (optional; used to seed color/images).
   const [productName, setProductName] = useState(DEFAULT_PRODUCT_NAME);
   const [scrapedColors, setScrapedColors] = useState<ScrapedProduct["colors"]>([]);
-  /** True after a successful `/api/scrape` load (even if the PDP lists no colors). */
   const [productLoadedFromScrape, setProductLoadedFromScrape] = useState(false);
   const [scrapedImages, setScrapedImages] = useState<string[]>([]);
   const [isLoadingProduct, setIsLoadingProduct] = useState(false);
   const [productLoadError, setProductLoadError] = useState<string | null>(null);
+  const [loadedProductUrl, setLoadedProductUrl] = useState<string | null>(null);
 
-  // 3D generation state (taskId can be restored from share links on first mount).
   const [generatedModelTaskId, setGeneratedModelTaskId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     return parseShareTaskId(new URLSearchParams(window.location.search).get("taskId"));
   });
+  const [generatedColorModels, setGeneratedColorModels] = useState<GeneratedColorModel[]>([]);
+  const [selectedModelKey, setSelectedModelKey] = useState<string | null>(null);
   const [isGeneratingModel, setIsGeneratingModel] = useState(false);
   const [modelGenerationProgress, setModelGenerationProgress] = useState(0);
   const [modelGenerationError, setModelGenerationError] = useState<string | null>(null);
-  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isStoringPreloaded, setIsStoringPreloaded] = useState(false);
+  const [storePreloadedError, setStorePreloadedError] = useState<string | null>(null);
 
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hydratedFromUrl = useRef(false);
   const hydratedFromShare = useRef(false);
+  const promptedStoreTokenRef = useRef<string | null>(null);
 
-  const setLogoDataUrlWithReset = useCallback(
-    (url: string | null) => {
-      setLogoDataUrl(url);
-      if (!url) {
-        setIsLogoPlacementMode(false);
-        return;
-      }
-      // Always start new uploads at the default placement.
-      setDecal(DEFAULT_DECAL);
-    },
-    [],
-  );
+  const setLogoDataUrlWithReset = useCallback((url: string | null) => {
+    setLogoDataUrl(url);
+    if (!url) {
+      setIsLogoPlacementMode(false);
+      return;
+    }
+    setDecal(DEFAULT_DECAL);
+  }, []);
 
   useEffect(() => {
     if (hydratedFromUrl.current) return;
@@ -104,17 +116,10 @@ export function useConfiguratorState() {
     const sp = new URLSearchParams(window.location.search);
     const c = parseColor(sp.get("c"));
     if (c) setColor(c);
-    const hashParams = new URLSearchParams(
-      window.location.hash.replace(/^#/, ""),
-    );
-    const logo =
-      hashParams.get("logo") ?? sp.get("logo");
-    if (logo && logo.startsWith("data:image")) {
-      setLogoDataUrl(logo); // Direct setter on initial hydrate (don’t toggle placement mode here).
-    }
-    if (hasDecalParams(sp)) {
-      setDecal(readDecalFromParams(sp));
-    }
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const logo = hashParams.get("logo") ?? sp.get("logo");
+    if (logo && logo.startsWith("data:image")) setLogoDataUrl(logo);
+    if (hasDecalParams(sp)) setDecal(readDecalFromParams(sp));
   }, []);
 
   const loadFromShareId = useCallback(async (shareId: string) => {
@@ -130,30 +135,24 @@ export function useConfiguratorState() {
           decal: DecalConfig;
           taskId: string | null;
           logoDataUrl: string | null;
+          scrapedColors?: ScrapedProduct["colors"];
         };
-        logo_url?: string | null;
         error?: string;
       } = await res.json();
-
       if (!res.ok || data.error || !data.payload) return;
-
       const p = data.payload;
       if (p.v !== 1) return;
       setProductName(p.productName || DEFAULT_PRODUCT_NAME);
+      if (p.scrapedColors && p.scrapedColors.length > 0) setScrapedColors(p.scrapedColors);
       if (p.color) setColor(p.color);
       if (p.decal) setDecal(p.decal);
       setGeneratedModelTaskId(parseShareTaskId(p.taskId));
-      if (p.logoDataUrl && p.logoDataUrl.startsWith("data:image")) {
-        setLogoDataUrl(p.logoDataUrl);
-      } else {
-        setLogoDataUrl(null);
-      }
+      if (p.logoDataUrl && p.logoDataUrl.startsWith("data:image")) setLogoDataUrl(p.logoDataUrl);
     } catch {
-      // ignore — user can still use the app without share hydration
+      // ignore
     }
   }, []);
 
-  /** Query only — logo is never appended here (see share URL hash) so GET requests stay small. */
   const buildQueryString = useCallback(() => {
     const params = new URLSearchParams();
     params.set("c", color.replace("#", ""));
@@ -164,9 +163,7 @@ export function useConfiguratorState() {
     params.set("rx", String(decal.rotation[0]));
     params.set("ry", String(decal.rotation[1]));
     params.set("rz", String(decal.rotation[2]));
-    if (generatedModelTaskId) {
-      params.set("taskId", generatedModelTaskId);
-    }
+    if (generatedModelTaskId) params.set("taskId", generatedModelTaskId);
     return params.toString();
   }, [color, decal, generatedModelTaskId]);
 
@@ -185,16 +182,71 @@ export function useConfiguratorState() {
     return buildShareHref();
   }, [buildShareHref]);
 
+  const stopPolling = useCallback(() => {
+    if (pollTimerRef.current) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }, []);
+
+  const loadPreloadedModels = useCallback(async (productUrl: string, images: string[]) => {
+    try {
+      const res = await fetch(`/api/meshy/preloaded?productUrl=${encodeURIComponent(productUrl)}`);
+      const data: {
+        items?: Array<{
+          color_key: string;
+          color_label: string | null;
+          color_hex: string | null;
+          image_url: string;
+          task_id: string | null;
+        }>;
+      } = await res.json();
+      if (!res.ok || !Array.isArray(data.items)) return;
+      const byImage = new Map(
+        (data.items ?? [])
+          .filter((item) => item.task_id && images.includes(item.image_url))
+          .map((item) => [item.image_url, item]),
+      );
+      if (byImage.size === 0) return;
+      const models: GeneratedColorModel[] = [];
+      for (let idx = 0; idx < images.length; idx += 1) {
+        const imageUrl = images[idx];
+        const item = byImage.get(imageUrl);
+        if (!item || !item.task_id) continue;
+        models.push({
+          key: item.color_key || `img-${idx + 1}`,
+          imageUrl,
+          colorLabel: item.color_label ?? undefined,
+          colorHex: item.color_hex ?? undefined,
+          taskId: item.task_id,
+          status: "SUCCEEDED",
+          progress: 100,
+          error: null,
+          fromPreload: true,
+        });
+      }
+      if (models.length > 0) {
+        setGeneratedColorModels(models);
+        setSelectedModelKey((prev) => prev ?? models[0].key);
+      }
+    } catch {
+      // optional path
+    }
+  }, []);
+
   const loadProductFromUrl = useCallback(async (url: string) => {
     if (!url.trim()) return;
     setIsLoadingProduct(true);
     setProductLoadError(null);
-    // Loading a new PDP invalidates any previously generated model.
-    if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+    stopPolling();
     setGeneratedModelTaskId(null);
+    setGeneratedColorModels([]);
+    setSelectedModelKey(null);
+    promptedStoreTokenRef.current = null;
     setIsGeneratingModel(false);
     setModelGenerationProgress(0);
     setModelGenerationError(null);
+    setStorePreloadedError(null);
     try {
       const res = await fetch(`/api/scrape?url=${encodeURIComponent(url)}`);
       const data: ScrapedProduct & { error?: string } = await res.json();
@@ -206,98 +258,268 @@ export function useConfiguratorState() {
       setScrapedColors(data.colors ?? []);
       setProductLoadedFromScrape(true);
       setScrapedImages(data.images ?? []);
-      if (data.colors?.length > 0) {
-        setColor(data.colors[0].hex);
-      }
+      setLoadedProductUrl(url);
+      await loadPreloadedModels(url, data.images ?? []);
     } catch {
       setProductLoadError("Network error — check your connection");
     } finally {
       setIsLoadingProduct(false);
     }
-  }, []);
+  }, [loadPreloadedModels, stopPolling]);
 
-  const stopPolling = useCallback(() => {
-    if (pollTimerRef.current) {
-      clearTimeout(pollTimerRef.current);
-      pollTimerRef.current = null;
+  const pollBatchStatuses = useCallback(async (items: GeneratedColorModel[]) => {
+    const taskItems = items
+      .filter((i) => i.taskId)
+      .map((i) => ({ key: i.key, taskId: i.taskId as string }));
+
+    if (taskItems.length === 0) {
+      setIsGeneratingModel(false);
+      return;
     }
+
+    const poll = async () => {
+      try {
+        const statusRes = await fetch("/api/meshy/batch-status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items: taskItems }),
+        });
+        const payload: {
+          items?: Array<
+            {
+              key: string;
+              taskId: string;
+            } & MeshyTaskStatus
+          >;
+          error?: string;
+        } = await statusRes.json();
+
+        if (!statusRes.ok || !payload.items) {
+          setModelGenerationError(payload.error ?? "Batch status check failed");
+          setIsGeneratingModel(false);
+          return;
+        }
+
+        const byKey = new Map(payload.items.map((i) => [i.key, i]));
+        setGeneratedColorModels((prev) =>
+          prev.map((item) => {
+            const status = byKey.get(item.key);
+            if (!status) return item;
+            return {
+              ...item,
+              status: status.status,
+              progress: status.progress ?? 0,
+              error: status.error,
+            };
+          }),
+        );
+
+        const terminalCount = payload.items.filter(
+          (i) => i.status === "SUCCEEDED" || i.status === "FAILED" || i.status === "EXPIRED",
+        ).length;
+        const avgProgress =
+          payload.items.length === 0
+            ? 0
+            : Math.round(
+                payload.items.reduce((sum, item) => sum + (item.progress ?? 0), 0) / payload.items.length,
+              );
+        setModelGenerationProgress(avgProgress);
+
+        if (terminalCount === payload.items.length) {
+          setIsGeneratingModel(false);
+          setModelGenerationProgress(100);
+          setGeneratedColorModels((prev) => {
+            const succeeded = prev.find((m) => m.status === "SUCCEEDED");
+            if (succeeded) setSelectedModelKey((curr) => curr ?? succeeded.key);
+            return prev;
+          });
+          return;
+        }
+
+        pollTimerRef.current = setTimeout(poll, 4000);
+      } catch {
+        pollTimerRef.current = setTimeout(poll, 8000);
+      }
+    };
+
+    poll();
   }, []);
 
-  const generateModelFromImage = useCallback(async (imageUrl: string) => {
-    stopPolling();
-    setIsGeneratingModel(true);
-    setModelGenerationProgress(0);
-    setModelGenerationError(null);
-    setGeneratedModelTaskId(null);
-
+  const storeGeneratedModels = useCallback(async () => {
+    if (!loadedProductUrl) return;
+    const successful = generatedColorModels.filter((m) => m.taskId && m.status === "SUCCEEDED");
+    if (successful.length === 0) return;
+    setIsStoringPreloaded(true);
+    setStorePreloadedError(null);
     try {
-      const res = await fetch("/api/meshy/generate", {
+      const res = await fetch("/api/meshy/batch-store", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageUrl }),
+        body: JSON.stringify({
+          productUrl: loadedProductUrl,
+          items: successful.map((m) => ({
+            key: m.key,
+            colorLabel: m.colorLabel,
+            colorHex: m.colorHex,
+            imageUrl: m.imageUrl,
+            taskId: m.taskId,
+          })),
+        }),
       });
-      const data: { taskId?: string; error?: string } = await res.json();
-
+      const data: { error?: string } = await res.json();
       if (!res.ok || data.error) {
-        setModelGenerationError(data.error ?? "Failed to start 3D generation");
-        setIsGeneratingModel(false);
-        return;
+        setStorePreloadedError(data.error ?? "Failed to store generated models");
       }
-
-      const taskId = data.taskId!;
-
-      const poll = async () => {
-        try {
-          const statusRes = await fetch(`/api/meshy/status?taskId=${encodeURIComponent(taskId)}`);
-          const status: MeshyTaskStatus & { error?: string } = await statusRes.json();
-
-          if (!statusRes.ok) {
-            setModelGenerationError((status as { error?: string }).error ?? "Status check failed");
-            setIsGeneratingModel(false);
-            return;
-          }
-
-          setModelGenerationProgress(status.progress ?? 0);
-
-          if (status.status === "SUCCEEDED") {
-            setGeneratedModelTaskId(taskId);
-            setIsGeneratingModel(false);
-            setModelGenerationProgress(100);
-          } else if (status.status === "FAILED" || status.status === "EXPIRED") {
-            setModelGenerationError(status.error || "3D generation failed — try a different image");
-            setIsGeneratingModel(false);
-          } else {
-            // Still running — poll again after 4s.
-            pollTimerRef.current = setTimeout(poll, 4000);
-          }
-        } catch {
-          // Transient network hiccup — retry with backoff.
-          pollTimerRef.current = setTimeout(poll, 8000);
-        }
-      };
-
-      poll();
     } catch {
-      setModelGenerationError("Network error — check your connection");
-      setIsGeneratingModel(false);
+      setStorePreloadedError("Failed to store generated models");
+    } finally {
+      setIsStoringPreloaded(false);
     }
-  }, [stopPolling]);
+  }, [generatedColorModels, loadedProductUrl]);
 
-  const resetGeneratedModel = useCallback(() => {
-    stopPolling();
-    setGeneratedModelTaskId(null);
-    setIsGeneratingModel(false);
-    setModelGenerationProgress(0);
-    setModelGenerationError(null);
-  }, [stopPolling]);
+  const generateModelsBatch = useCallback(
+    async (items: GenerateBatchItemInput[], options?: { removeLogosFor3D?: boolean }) => {
+      if (items.length === 0) return;
+      stopPolling();
+      setModelGenerationError(null);
+      setModelGenerationProgress(0);
+      setIsGeneratingModel(true);
+      setStorePreloadedError(null);
+      setGeneratedModelTaskId(null);
 
-  // Always stop polling on unmount.
+      const initial: GeneratedColorModel[] = items.map((item) => ({
+        key: item.key,
+        imageUrl: item.imageUrl,
+        colorLabel: item.colorLabel,
+        colorHex: item.colorHex,
+        taskId: null,
+        status: "QUEUED",
+        progress: 0,
+        error: null,
+      }));
+      setGeneratedColorModels(initial);
+      setSelectedModelKey(null);
+      promptedStoreTokenRef.current = null;
+
+      try {
+        const res = await fetch("/api/meshy/batch-generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            items,
+            removeLogosFor3D: options?.removeLogosFor3D === true,
+          }),
+        });
+        const data: {
+          items?: Array<{
+            key: string;
+            imageUrl: string;
+            colorLabel?: string;
+            colorHex?: string;
+            taskId: string | null;
+            error: string | null;
+          }>;
+          error?: string;
+        } = await res.json();
+        if (!res.ok || !data.items) {
+          setModelGenerationError(data.error ?? "Failed to start 3D generation batch");
+          setIsGeneratingModel(false);
+          return;
+        }
+
+        const started = data.items.map((item) => ({
+          key: item.key,
+          imageUrl: item.imageUrl,
+          colorLabel: item.colorLabel,
+          colorHex: item.colorHex,
+          taskId: item.taskId,
+          status: item.taskId ? ("PENDING" as const) : ("FAILED" as const),
+          progress: 0,
+          error: item.error,
+        }));
+        setGeneratedColorModels(started);
+
+        const hasTask = started.some((i) => i.taskId);
+        if (!hasTask) {
+          const details = started
+            .map((i) => i.error)
+            .filter((v): v is string => Boolean(v))
+            .slice(0, 3)
+            .join(" | ");
+          setIsGeneratingModel(false);
+          setModelGenerationError(
+            details
+              ? `Could not start model generation: ${details}`
+              : "Could not start model generation for selected colors",
+          );
+          return;
+        }
+
+        await pollBatchStatuses(started);
+      } catch {
+        setModelGenerationError("Network error — check your connection");
+        setIsGeneratingModel(false);
+      }
+    },
+    [pollBatchStatuses, stopPolling],
+  );
+
+  const generateModelFromImage = useCallback(
+    async (imageUrl: string, options?: { removeLogosFor3D?: boolean }) => {
+      const one: GenerateBatchItemInput[] = [{ key: "single", imageUrl, colorLabel: "Selected Image" }];
+      await generateModelsBatch(one, options);
+    },
+    [generateModelsBatch],
+  );
+
+  useEffect(() => () => stopPolling(), [stopPolling]);
+
   useEffect(() => {
-    return () => stopPolling();
-  }, [stopPolling]);
+    if (isGeneratingModel) return;
+    const successful = generatedColorModels.filter((m) => m.status === "SUCCEEDED");
+    if (successful.length === 0) return;
+    if (!loadedProductUrl) return;
+    const hasFresh = successful.some((m) => !m.fromPreload);
+    if (!hasFresh) return;
+    const token = successful
+      .map((m) => m.taskId ?? "")
+      .sort()
+      .join("|");
+    if (!token || promptedStoreTokenRef.current === token) return;
+    promptedStoreTokenRef.current = token;
+
+    const shouldStore = window.confirm(
+      `Generated ${successful.length} model(s). Do you want to store these for this product and preload next time?`,
+    );
+    if (shouldStore) {
+      void storeGeneratedModels();
+    }
+  }, [generatedColorModels, isGeneratingModel, loadedProductUrl, storeGeneratedModels]);
+
+  const syncTaskIdFromUrl = useCallback((rawTaskId: string | null) => {
+    const parsed = parseShareTaskId(rawTaskId);
+    setGeneratedModelTaskId((prev) => (prev === parsed ? prev : parsed));
+    if (!parsed) {
+      setSelectedModelKey(null);
+      setGeneratedColorModels([]);
+    }
+  }, []);
+
+  const activeModelTaskId = useMemo(() => {
+    const selected = selectedModelKey
+      ? generatedColorModels.find((m) => m.key === selectedModelKey)
+      : null;
+    if (selected?.taskId) return selected.taskId;
+    const firstSucceeded = generatedColorModels.find((m) => m.status === "SUCCEEDED" && m.taskId);
+    if (firstSucceeded?.taskId) return firstSucceeded.taskId;
+    return generatedModelTaskId;
+  }, [generatedColorModels, generatedModelTaskId, selectedModelKey]);
+
+  const generatedModelUrl = activeModelTaskId
+    ? `/api/meshy/model?taskId=${encodeURIComponent(activeModelTaskId)}`
+    : null;
 
   const copyShareLink = useCallback(async () => {
-    // Prefer a short URL backed by Supabase. If anything fails, fall back to the long URL.
     let full = buildShareHref();
     try {
       const res = await fetch("/api/share", {
@@ -308,33 +530,26 @@ export function useConfiguratorState() {
           productName,
           color,
           decal,
-          taskId: generatedModelTaskId,
+          // Share the currently selected/active model so receiver sees same color variant.
+          taskId: activeModelTaskId,
           logoDataUrl,
+          ...(scrapedColors.length > 0 ? { scrapedColors } : {}),
         }),
       });
       const data: { id?: string; error?: string } = await res.json();
-      if (res.ok && data.id) {
-        full = `${window.location.origin}/s/${data.id}`;
-      }
+      if (res.ok && data.id) full = `${window.location.origin}/s/${data.id}`;
     } catch {
-      /* keep fallback */
+      // fallback
     }
     try {
       await navigator.clipboard.writeText(full);
     } catch {
       window.prompt("Copy this link:", full);
     }
-  }, [buildShareHref, color, decal, generatedModelTaskId, logoDataUrl, productName]);
-
-  // Proxy URL for the generated model (null => fall back to bundled GLB).
-  const generatedModelUrl = generatedModelTaskId
-    ? `/api/meshy/model?taskId=${encodeURIComponent(generatedModelTaskId)}`
-    : null;
+  }, [activeModelTaskId, buildShareHref, color, decal, logoDataUrl, productName, scrapedColors]);
 
   return {
     productName,
-    color,
-    setColor,
     logoDataUrl,
     setLogoDataUrl: setLogoDataUrlWithReset,
     decal,
@@ -349,16 +564,34 @@ export function useConfiguratorState() {
     isLoadingProduct,
     productLoadError,
     loadProductFromUrl,
-    // 3D generation
+    generatedColorModels,
+    selectedModelKey,
+    setSelectedModelKey,
+    isStoringPreloaded,
+    storePreloadedError,
+    storeGeneratedModels,
     generatedModelUrl,
     isGeneratingModel,
     modelGenerationProgress,
     modelGenerationError,
     generateModelFromImage,
-    resetGeneratedModel,
+    generateModelsBatch,
+    resetGeneratedModel: () => {
+      stopPolling();
+      setGeneratedModelTaskId(null);
+      setGeneratedColorModels([]);
+      setSelectedModelKey(null);
+      promptedStoreTokenRef.current = null;
+      setIsGeneratingModel(false);
+      setModelGenerationProgress(0);
+      setModelGenerationError(null);
+      setStorePreloadedError(null);
+    },
     shareUrl,
     copyShareLink,
     buildQueryString,
     loadFromShareId,
+    syncTaskIdFromUrl,
   };
 }
+

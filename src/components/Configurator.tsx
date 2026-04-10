@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { ControlsPanel } from "@/components/ControlsPanel";
 import { useConfiguratorState } from "@/hooks/useConfiguratorState";
 import type { DecalConfig } from "@/types/configurator";
@@ -29,10 +30,10 @@ const CAPTURE_ID = "configurator-viewer";
  * from the URL and can remount client trees, which tears down WebGL and shows a white canvas.
  */
 export default function Configurator({ shareId }: { shareId?: string }) {
+  const isSharedView = Boolean(shareId);
+  const searchParams = useSearchParams();
   const {
     productName,
-    color,
-    setColor,
     logoDataUrl,
     setLogoDataUrl,
     decal,
@@ -48,14 +49,22 @@ export default function Configurator({ shareId }: { shareId?: string }) {
     productLoadError,
     loadProductFromUrl,
     generatedModelUrl,
+    generatedColorModels,
+    selectedModelKey,
+    setSelectedModelKey,
     isGeneratingModel,
     modelGenerationProgress,
     modelGenerationError,
     generateModelFromImage,
+    generateModelsBatch,
     resetGeneratedModel,
+    isStoringPreloaded,
+    storePreloadedError,
+    storeGeneratedModels,
     shareUrl,
     copyShareLink,
     loadFromShareId,
+    syncTaskIdFromUrl,
   } = useConfiguratorState();
 
   // If this page is /s/[id], hydrate state from Supabase once.
@@ -65,49 +74,60 @@ export default function Configurator({ shareId }: { shareId?: string }) {
     void loadFromShareId(shareId);
   }, [loadFromShareId, shareId]);
 
+  useEffect(() => {
+    if (shareId) return;
+    syncTaskIdFromUrl(searchParams.get("taskId"));
+  }, [searchParams, shareId, syncTaskIdFromUrl]);
+
   const onDecalChange = useCallback((next: DecalConfig) => {
     setDecal(next);
   }, [setDecal]);
 
   return (
     <main className="mx-auto flex min-h-screen max-w-[1600px] flex-col gap-4 p-3 sm:p-4 md:flex-row md:gap-6 md:p-6">
-      <div className="w-full shrink-0 md:w-[380px]">
-        <ControlsPanel
-          productName={productName}
-          displayUrl={displayUrl}
-          onDisplayUrlChange={setDisplayUrl}
-          onLoadProduct={loadProductFromUrl}
-          isLoadingProduct={isLoadingProduct}
-          productLoadError={productLoadError}
-          scrapedColors={scrapedColors}
-          productLoadedFromScrape={productLoadedFromScrape}
-          scrapedImages={scrapedImages}
-          color={color}
-          onColorChange={setColor}
-          logoDataUrl={logoDataUrl}
-          onLogoDataUrlChange={setLogoDataUrl}
-          isLogoPlacementMode={isLogoPlacementMode}
-          onLogoPlacementModeChange={setIsLogoPlacementMode}
-          decal={decal}
-          onDecalChange={onDecalChange}
-          generatedModelUrl={generatedModelUrl}
-          isGeneratingModel={isGeneratingModel}
-          modelGenerationProgress={modelGenerationProgress}
-          modelGenerationError={modelGenerationError}
-          onGenerateModel={generateModelFromImage}
-          onResetModel={resetGeneratedModel}
-          shareUrl={shareUrl}
-          onCopyShare={copyShareLink}
-          captureElementId={CAPTURE_ID}
-        />
-      </div>
+      {!isSharedView ? (
+        <div className="w-full shrink-0 md:w-[380px]">
+          <ControlsPanel
+            productName={productName}
+            displayUrl={displayUrl}
+            onDisplayUrlChange={setDisplayUrl}
+            onLoadProduct={loadProductFromUrl}
+            isLoadingProduct={isLoadingProduct}
+            productLoadError={productLoadError}
+            scrapedColors={scrapedColors}
+            productLoadedFromScrape={productLoadedFromScrape}
+            scrapedImages={scrapedImages}
+            logoDataUrl={logoDataUrl}
+            onLogoDataUrlChange={setLogoDataUrl}
+            isLogoPlacementMode={isLogoPlacementMode}
+            onLogoPlacementModeChange={setIsLogoPlacementMode}
+            decal={decal}
+            onDecalChange={onDecalChange}
+            generatedModelUrl={generatedModelUrl}
+            generatedColorModels={generatedColorModels}
+            selectedModelKey={selectedModelKey}
+            onSelectedModelKeyChange={setSelectedModelKey}
+            isGeneratingModel={isGeneratingModel}
+            modelGenerationProgress={modelGenerationProgress}
+            modelGenerationError={modelGenerationError}
+            onGenerateModel={generateModelFromImage}
+            onGenerateModelsBatch={generateModelsBatch}
+            onResetModel={resetGeneratedModel}
+            isStoringPreloaded={isStoringPreloaded}
+            storePreloadedError={storePreloadedError}
+            onStorePreloaded={storeGeneratedModels}
+            shareUrl={shareUrl}
+            onCopyShare={copyShareLink}
+            captureElementId={CAPTURE_ID}
+          />
+        </div>
+      ) : null}
       <div className="flex min-h-0 w-full flex-col max-md:h-[min(52dvh,580px)] max-md:min-h-[280px] max-md:flex-shrink-0 md:min-h-[min(70vh,720px)] md:flex-1">
         <ModelViewer
           captureId={CAPTURE_ID}
-          color={color}
           logoDataUrl={logoDataUrl}
           decal={decal}
-          onDecalChange={onDecalChange}
+          onDecalChange={isSharedView ? undefined : onDecalChange}
           isLogoPlacementMode={isLogoPlacementMode}
           modelUrl={generatedModelUrl ?? undefined}
           isGeneratingModel={isGeneratingModel}

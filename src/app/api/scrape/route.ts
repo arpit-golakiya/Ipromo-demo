@@ -111,14 +111,6 @@ function extractColors(html: string): Array<{ label: string; hex: string }> {
     seen.add(key);
     results.push({ label: label.trim(), hex: hex ?? nameToHex(label) });
   };
-
-  // ── Strategy 1 (PRIMARY): iPromo Next.js RSC payload ────────────────────
-  // iPromo embeds product JSON inside self.__next_f.push() JS strings, so
-  // quotes are backslash-escaped in the raw HTML:
-  //   plain JSON  →  "option_value":"#00FFFF","option_label":"Aqua (AQ)"
-  //   RSC string  → \"option_value\":\"#00FFFF\",\"option_label\":\"Aqua (AQ)\"
-  // Using \\?" for each delimiter matches both forms (optional leading backslash).
-  // [^"\\]{1,60} stops at the first " or \ so it works for both quote styles.
   const ipromoColorPairs = html.matchAll(
     /\\?"option_value\\?"\s*:\s*\\?"(#[0-9a-fA-F]{3,8})\\?"\s*,\s*\\?"option_label\\?"\s*:\s*\\?"([^"\\]{1,60})\\?"/gi,
   );
@@ -183,12 +175,88 @@ function extractImages(html: string, baseUrl: string): string[] {
   const seen = new Set<string>();
   const results: string[] = [];
 
+  const stripYouMayAlsoLikeSections = (input: string): string => {
+    let output = input;
+    const markerRe = /You\s+May\s+Also\s+Like/i;
+
+    while (true) {
+      const marker = markerRe.exec(output);
+      if (!marker || marker.index < 0) break;
+
+      const headingStart = output.lastIndexOf("<h2", marker.index);
+      if (headingStart < 0) break;
+
+      const sectionStart = output.lastIndexOf("<div", headingStart);
+      if (sectionStart < 0) break;
+
+      const tagRe = /<\/?div\b[^>]*>/gi;
+      tagRe.lastIndex = sectionStart;
+
+      let depth = 0;
+      let sectionEnd = -1;
+      let foundStart = false;
+
+      for (let m = tagRe.exec(output); m; m = tagRe.exec(output)) {
+        const tag = m[0];
+        const isClosing = /^<\//.test(tag);
+
+        if (!foundStart) {
+          foundStart = true;
+          depth = 1;
+          continue;
+        }
+
+        if (!isClosing) {
+          depth += 1;
+        } else {
+          depth -= 1;
+          if (depth === 0) {
+            sectionEnd = tagRe.lastIndex;
+            break;
+          }
+        }
+      }
+
+      if (sectionEnd <= sectionStart) break;
+      output = `${output.slice(0, sectionStart)}${output.slice(sectionEnd)}`;
+    }
+
+    return output;
+  };
+
+  const htmlWithoutRelated = stripYouMayAlsoLikeSections(html);
+  const relatedImageBlacklist = new Set<string>();
+
+  const relatedMarker = /You\s+May\s+Also\s+Like/i.exec(html);
+  if (relatedMarker?.index !== undefined) {
+    const relatedChunk = html.slice(Math.max(0, relatedMarker.index - 2000));
+
+    // Encoded Next.js optimizer URLs in related-products cards:
+    // /_next/image?url=https%3A%2F%2F...cloudfront...jpg&w=640&q=75
+    for (const m of relatedChunk.matchAll(/[?&]url=(https?%3A%2F%2F[^"'&\s<>]+)/gi)) {
+      try {
+        const decoded = decodeURIComponent(m[1]).replace(/\\/g, "");
+        relatedImageBlacklist.add(decoded);
+      } catch {
+        // ignore malformed encodings
+      }
+    }
+
+    // Direct CDN URLs that might appear in inline JSON/script payloads.
+    for (const m of relatedChunk.matchAll(
+      /https?:\/\/[a-zA-Z0-9.-]+\.cloudfront\.net\/catalog\/product\/[^"'\\\s<>]+\.(?:jpg|jpeg|png|webp)/gi,
+    )) {
+      relatedImageBlacklist.add(m[0].replace(/\\/g, ""));
+    }
+  }
+
   const add = (url: string) => {
     try {
       // Resolve relative paths and strip escaped backslashes from RSC payloads
       const clean = url.replace(/\\/g, "");
       const abs = clean.startsWith("http") ? clean : new URL(clean, baseUrl).href;
       if (seen.has(abs)) return;
+      if (relatedImageBlacklist.has(abs)) return;
       // Skip icons, logos, banners, and tracking pixels (path-level only)
       if (/\/(icon|logo|banner|sprite|pixel|badge|flag)\b/i.test(abs)) return;
       if (/\.(svg|gif|ico)(\?|$)/i.test(abs)) return;
@@ -201,7 +269,7 @@ function extractImages(html: string, baseUrl: string): string[] {
   };
 
   // ── Strategy 1: og:image (primary product photo) ────────────────────────
-  const ogMatch = html.match(
+  const ogMatch = htmlWithoutRelated.match(
     /<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i,
   );
   const ogUrl = ogMatch?.[1] ?? null;
@@ -223,7 +291,7 @@ function extractImages(html: string, baseUrl: string): string[] {
         `https?://[a-zA-Z0-9.-]+\\.cloudfront\\.net/catalog/product/[^"'\\\\\\s<>]*${prefix}[^"'\\\\\\s<>]*\\.(?:jpg|jpeg|png|webp)`,
         "gi",
       );
-      for (const m of html.matchAll(skuRe)) add(m[0]);
+      for (const m of htmlWithoutRelated.matchAll(skuRe)) add(m[0]);
     }
   }
 
@@ -233,7 +301,7 @@ function extractImages(html: string, baseUrl: string): string[] {
   // or backslash-escaped inside self.__next_f.push() strings:
   //   \"image\":[\"https://...jpg\",\"https://...jpg\"]
   // The \\?" makes the leading backslash optional so both forms are covered.
-  for (const arrayMatch of html.matchAll(
+  for (const arrayMatch of htmlWithoutRelated.matchAll(
     /\\?"image\\?"\s*:\s*\[([^\]]{1,4000})\]/gi,
   )) {
     for (const urlMatch of arrayMatch[1].matchAll(
@@ -247,37 +315,36 @@ function extractImages(html: string, baseUrl: string): string[] {
   // iPromo serves ALL product images through their CloudFront CDN
   // (e.g. dcridil0zrtkb.cloudfront.net). This catches any that slipped
   // through the more targeted strategies above.
-  for (const m of html.matchAll(
+  for (const m of htmlWithoutRelated.matchAll(
     /https?:\/\/[a-zA-Z0-9.-]+\.cloudfront\.net\/catalog\/product\/[^"'\\\s<>]+\.(?:jpg|jpeg|png|webp)/gi,
   )) {
     add(m[0]);
   }
 
   // ── Strategy 5: RSC individual image field strings ────────────────────────
-  for (const m of html.matchAll(
+  for (const m of htmlWithoutRelated.matchAll(
     /"(?:image_url|thumbnail_url|small_image|base_image)"\s*:\s*"(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp))"/gi,
   )) {
     add(m[1]);
   }
 
   // ── Strategy 6: Relative /catalog/product/ path entries ──────────────────
-  for (const m of html.matchAll(
+  for (const m of htmlWithoutRelated.matchAll(
     /"(?:file|url)"\s*:\s*"(\/catalog\/product\/[^"]+\.(?:jpg|jpeg|png|webp))"/gi,
   )) {
     add(m[1]);
   }
 
   // ── Strategy 7: <img> tags — ipromo.com domain or cloudfront CDN ─────────
-  for (const m of html.matchAll(
+  for (const m of htmlWithoutRelated.matchAll(
     /<img[^>]+src=["']((?:https?:)?\/\/[^"']*(?:ipromo|cloudfront)[^"']*\.(?:jpg|jpeg|png|webp)[^"']*)/gi,
   )) {
     const url = m[1].startsWith("//") ? `https:${m[1]}` : m[1];
     add(url);
   }
 
-  // Return at most 8 images (prioritised: og:image first, then SKU matches,
-  // then broader catches from the same CDN).
-  return results.slice(0, 8);
+  // Return all discovered product images after dedupe/filtering.
+  return results;
 }
 
 function extractDescription(html: string): string {

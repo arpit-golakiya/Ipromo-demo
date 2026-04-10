@@ -5,14 +5,47 @@ import type { DecalConfig } from "@/types/configurator";
 import { downloadConfiguratorPdf } from "@/lib/pdfExport";
 import type { ScrapedProduct } from "@/app/api/scrape/route";
 
-/** Maximum dimension (px) for the compressed logo stored in the share URL. */
 const LOGO_MAX_PX = 256;
 
-/**
- * Shrink a raster logo to at most LOGO_MAX_PX on its longest side.
- * Always outputs PNG when the source is PNG (or has had bg removed) so
- * transparency is preserved. JPEG inputs without bg removal use JPEG output.
- */
+function normalizeImageName(rawUrl: string): string {
+  try {
+    const u = new URL(rawUrl);
+    const decodedPath = decodeURIComponent(u.pathname);
+    const file = decodedPath.split("/").pop() ?? decodedPath;
+    return file.toLowerCase().replace(/\.[a-z0-9]+$/i, "");
+  } catch {
+    const cleaned = decodeURIComponent(rawUrl);
+    const file = cleaned.split("/").pop() ?? cleaned;
+    return file.toLowerCase().replace(/\.[a-z0-9]+$/i, "");
+  }
+}
+
+function deriveColorLabelForImage(
+  imageUrl: string,
+  scrapedImages: string[],
+  scrapedColors: ScrapedProduct["colors"],
+): { label: string; hex?: string } {
+  const directIdx = scrapedImages.indexOf(imageUrl);
+  if (directIdx >= 0 && scrapedColors[directIdx]?.label) {
+    return {
+      label: scrapedColors[directIdx].label,
+      hex: scrapedColors[directIdx].hex,
+    };
+  }
+
+  const imageToken = normalizeImageName(imageUrl);
+  for (const c of scrapedColors) {
+    const labelToken = c.label.toLowerCase().replace(/[^a-z0-9]+/g, "");
+    if (!labelToken) continue;
+    if (imageToken.includes(labelToken)) {
+      return { label: c.label, hex: c.hex };
+    }
+  }
+
+  const oneBased = directIdx >= 0 ? directIdx + 1 : 1;
+  return { label: `Image ${oneBased}` };
+}
+
 async function compressLogoImage(dataUrl: string): Promise<string> {
   if (dataUrl.startsWith("data:image/svg")) return dataUrl;
 
@@ -98,16 +131,6 @@ async function removeWhiteBackground(dataUrl: string, tolerance = 40): Promise<s
   });
 }
 
-const PRESET_COLORS: Array<{ label: string; hex: string }> = [
-  { label: "Blue",        hex: "#4a6fa5" },
-  { label: "Forest",      hex: "#2d6a4f" },
-  { label: "Red",         hex: "#9d0208" },
-  { label: "Orange",      hex: "#f4a261" },
-  { label: "Purple",      hex: "#240046" },
-  { label: "Black",       hex: "#1a1a1a" },
-  { label: "White",       hex: "#e9ecef" },
-];
-
 export type ControlsPanelProps = {
   productName: string;
   displayUrl: string;
@@ -116,11 +139,8 @@ export type ControlsPanelProps = {
   isLoadingProduct: boolean;
   productLoadError: string | null;
   scrapedColors: ScrapedProduct["colors"];
-  /** After a successful scrape: hide color UI when the PDP returned no color variants. */
   productLoadedFromScrape: boolean;
   scrapedImages: string[];
-  color: string;
-  onColorChange: (v: string) => void;
   logoDataUrl: string | null;
   onLogoDataUrlChange: (dataUrl: string | null) => void;
   isLogoPlacementMode: boolean;
@@ -129,18 +149,46 @@ export type ControlsPanelProps = {
   onDecalChange: (next: DecalConfig) => void;
   // 3D model generation
   generatedModelUrl: string | null;
+  generatedColorModels: Array<{
+    key: string;
+    imageUrl: string;
+    colorLabel?: string;
+    colorHex?: string;
+    taskId: string | null;
+    status: "QUEUED" | "PENDING" | "IN_PROGRESS" | "SUCCEEDED" | "FAILED" | "EXPIRED";
+    progress: number;
+    error: string | null;
+    fromPreload?: boolean;
+  }>;
+  selectedModelKey: string | null;
+  onSelectedModelKeyChange: (key: string | null) => void;
   isGeneratingModel: boolean;
   modelGenerationProgress: number;
   modelGenerationError: string | null;
-  onGenerateModel: (imageUrl: string) => void;
+  onGenerateModel: (
+    imageUrl: string,
+    options?: { removeLogosFor3D?: boolean },
+  ) => void;
+  onGenerateModelsBatch: (
+    items: Array<{
+      key: string;
+      imageUrl: string;
+      colorLabel?: string;
+      colorHex?: string;
+    }>,
+    options?: { removeLogosFor3D?: boolean },
+  ) => void;
   onResetModel: () => void;
+  isStoringPreloaded: boolean;
+  storePreloadedError: string | null;
+  onStorePreloaded: () => void;
   shareUrl: string;
   onCopyShare: () => void;
   captureElementId: string;
 };
 
 /**
- * Left column: URL field, logo upload, color presets, decal tuning, share & PDF.
+ * Left column: URL field, logo upload / drop, decal tuning, share & PDF.
  */
 export function ControlsPanel({
   productName,
@@ -152,8 +200,6 @@ export function ControlsPanel({
   scrapedColors,
   productLoadedFromScrape,
   scrapedImages,
-  color,
-  onColorChange,
   logoDataUrl,
   onLogoDataUrlChange,
   isLogoPlacementMode,
@@ -161,11 +207,18 @@ export function ControlsPanel({
   decal,
   onDecalChange,
   generatedModelUrl,
+  generatedColorModels,
+  selectedModelKey,
+  onSelectedModelKeyChange,
   isGeneratingModel,
   modelGenerationProgress,
   modelGenerationError,
   onGenerateModel,
+  onGenerateModelsBatch,
   onResetModel,
+  isStoringPreloaded,
+  storePreloadedError,
+  onStorePreloaded,
   shareUrl,
   onCopyShare,
   captureElementId,
@@ -173,18 +226,23 @@ export function ControlsPanel({
   const fileRef = useRef<HTMLInputElement>(null);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
+  const [selectedImageUrls, setSelectedImageUrls] = useState<string[]>([]);
   const [removeWhiteBg, setRemoveWhiteBg] = useState(true);
+  /** Strip PDP/model logos via OpenAI before Meshy (same prompt as test.py). */
+  const [removeLogosFor3D, setRemoveLogosFor3D] = useState(false);
   const [copied, setCopied] = useState(false);
-
-  const showColorControls =
-    !productLoadedFromScrape || scrapedColors.length > 0;
-  const colorSwatches =
-    scrapedColors.length > 0 ? scrapedColors : PRESET_COLORS;
+  const [logoDropActive, setLogoDropActive] = useState(false);
 
   // Auto-select the first scraped image whenever a new product is loaded
   useEffect(() => {
-    setSelectedImageUrl(scrapedImages.length > 0 ? scrapedImages[0] : null);
+    setSelectedImageUrl(null);
+    setSelectedImageUrls([]);
   }, [scrapedImages]);
+
+  const successCount = generatedColorModels.filter((m) => m.status === "SUCCEEDED").length;
+  const failedCount = generatedColorModels.filter(
+    (m) => m.status === "FAILED" || m.status === "EXPIRED",
+  ).length;
 
   // Modern browsers handle URLs up to ~100 KB without issues.
   // Logos are compressed to 256 px on upload, so this is only triggered by
@@ -202,34 +260,61 @@ export function ControlsPanel({
     }
   }
 
-  function handleLogoFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (!f) {
-      onLogoDataUrlChange(null);
-      return;
-    }
-    const ok =
+  function isLogoFile(f: File): boolean {
+    return (
       f.type === "image/png" ||
       f.type === "image/jpeg" ||
       f.type === "image/jpg" ||
       f.type === "image/svg+xml" ||
-      f.name.toLowerCase().endsWith(".svg");
-    if (!ok) {
-      alert("Please upload PNG, JPG, or SVG.");
-      e.target.value = "";
+      f.name.toLowerCase().endsWith(".svg")
+    );
+  }
+
+  function processLogoFile(f: File) {
+    if (!isLogoFile(f)) {
+      alert("Please use PNG, JPG, or SVG.");
       return;
     }
     const reader = new FileReader();
     reader.onload = () => {
       const res = reader.result;
       if (typeof res !== "string") return;
-      // Pipeline: (optionally) remove white bg → compress to share-friendly size
       const pipeline = removeWhiteBg
         ? removeWhiteBackground(res).then(compressLogoImage)
         : compressLogoImage(res);
       pipeline.then((result) => onLogoDataUrlChange(result));
     };
     reader.readAsDataURL(f);
+  }
+
+  function handleLogoFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) {
+      onLogoDataUrlChange(null);
+      return;
+    }
+    processLogoFile(f);
+    e.target.value = "";
+  }
+
+  function handleLogoDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer.types.includes("Files")) setLogoDropActive(true);
+  }
+
+  function handleLogoDragLeave(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setLogoDropActive(false);
+  }
+
+  function handleLogoDrop(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setLogoDropActive(false);
+    const f = e.dataTransfer.files?.[0];
+    if (f) processLogoFile(f);
   }
 
   function clearLogo() {
@@ -254,8 +339,8 @@ export function ControlsPanel({
           {productName}
         </h1>
         <p className="mt-1 text-sm text-zinc-400">
-          Paste an iPromo URL to load the product, then add your logo. Color
-          swatches appear only when the page lists variants.
+          Paste an iPromo URL to load the product, then add your logo (upload or
+          drag-and-drop). Use a separate GLB per product color.
         </p>
       </header>
 
@@ -306,7 +391,7 @@ export function ControlsPanel({
             </p>
           ) : (
             <p className="text-xs text-zinc-500">
-              ✓ Loaded — no color variants found on this page; model tint unchanged.
+              ✓ Loaded — no color variants listed on this page.
             </p>
           )
         ) : null}
@@ -333,17 +418,17 @@ export function ControlsPanel({
           {/* Image thumbnails */}
           <div className="flex gap-2 overflow-x-auto pb-1">
             {scrapedImages.map((url) => (
-              <button
-                key={url}
-                type="button"
-                title="Use this image for 3D generation"
-                onClick={() => setSelectedImageUrl(url)}
-                className={`relative shrink-0 h-16 w-16 overflow-hidden rounded-md border-2 transition ${
-                  selectedImageUrl === url
-                    ? "border-blue-500 ring-2 ring-blue-500/40"
-                    : "border-white/10 hover:border-white/30"
-                }`}
-              >
+              <div key={url} className="relative">
+                <button
+                  type="button"
+                  title="Use this image for 3D generation"
+                  onClick={() => setSelectedImageUrl(url)}
+                  className={`relative shrink-0 h-16 w-16 overflow-hidden rounded-md border-2 transition ${
+                    selectedImageUrl === url
+                      ? "border-blue-500 ring-2 ring-blue-500/40"
+                      : "border-white/10 hover:border-white/30"
+                  }`}
+                >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={url}
@@ -360,9 +445,26 @@ export function ControlsPanel({
                     </svg>
                   </div>
                 )}
-              </button>
+                </button>
+                <label className="absolute -right-1 -top-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedImageUrls.includes(url)}
+                    onChange={(e) => {
+                      setSelectedImageUrls((prev) =>
+                        e.target.checked ? [...prev, url] : prev.filter((v) => v !== url),
+                      );
+                    }}
+                    className="h-4 w-4 accent-indigo-500"
+                    aria-label="Select image for batch generation"
+                  />
+                </label>
+              </div>
             ))}
           </div>
+          <p className="text-xs text-zinc-500">
+            Selected for parallel generation: {selectedImageUrls.length}
+          </p>
 
           {/* Progress bar (visible during generation) */}
           {isGeneratingModel && (
@@ -373,7 +475,9 @@ export function ControlsPanel({
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
                   </svg>
-                  Converting to 3D…
+                  {removeLogosFor3D
+                    ? "Cleaning image, then converting to 3D…"
+                    : "Converting to 3D…"}
                 </span>
                 <span className="font-mono">{modelGenerationProgress}%</span>
               </div>
@@ -391,9 +495,29 @@ export function ControlsPanel({
 
           {/* Success state */}
           {generatedModelUrl && !isGeneratingModel && (
-            <p className="text-xs text-emerald-400">
-              ✓ 3D model generated — viewing in the canvas
-            </p>
+            <div className="space-y-1">
+              <p className="text-xs text-emerald-400">
+                ✓ Generated {successCount} model{successCount === 1 ? "" : "s"}
+                {failedCount > 0 ? ` (${failedCount} failed)` : ""}
+              </p>
+              {successCount > 0 && (
+                <select
+                  value={selectedModelKey ?? ""}
+                  onChange={(e) => onSelectedModelKeyChange(e.target.value || null)}
+                  className="w-full rounded-md border border-white/15 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
+                >
+                  <option value="">Select generated model to preview</option>
+                  {generatedColorModels
+                    .filter((m) => m.status === "SUCCEEDED")
+                    .map((m) => (
+                      <option key={m.key} value={m.key}>
+                        {m.colorLabel ?? m.key}
+                        {m.fromPreload ? " (preloaded)" : ""}
+                      </option>
+                    ))}
+                </select>
+              )}
+            </div>
           )}
 
           {/* Error state */}
@@ -401,18 +525,81 @@ export function ControlsPanel({
             <p className="text-xs text-red-400">{modelGenerationError}</p>
           )}
 
+          <label className="flex cursor-pointer items-center gap-2 text-xs text-zinc-400 select-none">
+            <div
+              role="checkbox"
+              aria-checked={removeLogosFor3D}
+              onClick={() => setRemoveLogosFor3D((v) => !v)}
+              className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors ${
+                removeLogosFor3D ? "bg-indigo-600" : "bg-zinc-600"
+              }`}
+            >
+              <span
+                className={`inline-block h-3 w-3 rounded-full bg-white shadow transition-transform ${
+                  removeLogosFor3D ? "translate-x-3.5" : "translate-x-0.5"
+                }`}
+              />
+            </div>
+            <span>
+              Remove logos &amp; model from photo first{" "}
+              {/* <span className="text-zinc-500">(OpenAI, slower)</span> */}
+            </span>
+          </label>
+
           {/* Generate button */}
           {!isGeneratingModel && (
-            <button
-              type="button"
-              disabled={!selectedImageUrl || isGeneratingModel}
-              onClick={() => {
-                if (selectedImageUrl) onGenerateModel(selectedImageUrl);
-              }}
-              className="w-full rounded-lg bg-indigo-600 px-3 py-2.5 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {generatedModelUrl ? "Re-generate 3D Model" : "Generate 3D Model"}
-            </button>
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                disabled={!selectedImageUrl || isGeneratingModel}
+                onClick={() => {
+                  if (selectedImageUrl) {
+                    onGenerateModel(selectedImageUrl, {
+                      removeLogosFor3D,
+                    });
+                  }
+                }}
+                className="w-full rounded-lg bg-indigo-600 px-3 py-2.5 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Generate Single 3D Model
+              </button>
+              <button
+                type="button"
+                disabled={selectedImageUrls.length === 0 || isGeneratingModel}
+                onClick={() => {
+                  const items = selectedImageUrls.map((imageUrl, idx) => {
+                    const match = deriveColorLabelForImage(
+                      imageUrl,
+                      scrapedImages,
+                      scrapedColors,
+                    );
+                    return {
+                      key: `img-${idx + 1}`,
+                      imageUrl,
+                      colorLabel: match.label,
+                      colorHex: match.hex,
+                    };
+                  });
+                  onGenerateModelsBatch(items, { removeLogosFor3D });
+                }}
+                className="w-full rounded-lg bg-emerald-600 px-3 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Generate Selected in Parallel ({selectedImageUrls.length})
+              </button>
+              {successCount > 0 && (
+                <button
+                  type="button"
+                  disabled={isStoringPreloaded}
+                  onClick={onStorePreloaded}
+                  className="w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-medium text-zinc-100 transition hover:bg-white/10 disabled:opacity-60"
+                >
+                  {isStoringPreloaded ? "Storing..." : "Store generated models for preload"}
+                </button>
+              )}
+              {storePreloadedError && (
+                <p className="text-xs text-red-400">{storePreloadedError}</p>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -442,13 +629,27 @@ export function ControlsPanel({
           </label>
         </div>
 
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/png,image/jpeg,image/jpg,image/svg+xml,.svg"
-          onChange={handleLogoFile}
-          className="text-sm text-zinc-300 file:mr-3 file:rounded-md file:border-0 file:bg-blue-600 file:px-3 file:py-1.5 file:text-sm file:text-white hover:file:bg-blue-500"
-        />
+        <div
+          onDragOver={handleLogoDragOver}
+          onDragLeave={handleLogoDragLeave}
+          onDrop={handleLogoDrop}
+          className={`rounded-lg border-2 border-dashed p-3 transition-colors ${
+            logoDropActive
+              ? "border-blue-400 bg-blue-500/10"
+              : "border-white/15 bg-black/20"
+          }`}
+        >
+          <p className="mb-2 text-center text-xs text-zinc-500">
+            Drop a logo here or choose a file
+          </p>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/png,image/jpeg,image/jpg,image/svg+xml,.svg"
+            onChange={handleLogoFile}
+            className="w-full text-sm text-zinc-300 file:mr-3 file:rounded-md file:border-0 file:bg-blue-600 file:px-3 file:py-1.5 file:text-sm file:text-white hover:file:bg-blue-500"
+          />
+        </div>
 
         {logoDataUrl ? (
           <>
@@ -498,46 +699,6 @@ export function ControlsPanel({
           </p>
         )}
       </div>
-
-      {showColorControls ? (
-        <div className="flex flex-col gap-2">
-          <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-            {scrapedColors.length > 0 ? "Product colors" : "Base color"}
-          </span>
-          <div className="flex flex-wrap gap-2">
-            {colorSwatches.map((swatch) => (
-              <button
-                key={swatch.hex + swatch.label}
-                type="button"
-                title={swatch.label}
-                onClick={() => onColorChange(swatch.hex)}
-                className={`h-9 w-9 rounded-full border-2 transition ${
-                  color.toLowerCase() === swatch.hex.toLowerCase()
-                    ? "border-white ring-2 ring-blue-500/60"
-                    : "border-white/20 hover:border-white/50"
-                }`}
-                style={{ backgroundColor: swatch.hex }}
-              />
-            ))}
-          </div>
-          {scrapedColors.length > 0 ? (
-            <p className="text-xs text-zinc-500">
-              Hover a swatch to see its color name.
-            </p>
-          ) : null}
-          {scrapedColors.length === 0 ? (
-            <label className="mt-1 flex items-center gap-2 text-sm text-zinc-300">
-              <span className="text-zinc-500">Custom</span>
-              <input
-                type="color"
-                value={color}
-                onChange={(e) => onColorChange(e.target.value)}
-                className="h-9 w-14 cursor-pointer rounded border border-white/10 bg-transparent"
-              />
-            </label>
-          ) : null}
-        </div>
-      ) : null}
 
       <div className="flex flex-col gap-3 rounded-lg border border-white/5 bg-black/20 p-3">
         <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">

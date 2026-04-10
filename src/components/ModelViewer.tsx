@@ -1,6 +1,6 @@
 "use client";
 
-import { Environment, OrbitControls } from "@react-three/drei";
+import { OrbitControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { Suspense, useRef, type RefObject } from "react";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
@@ -16,12 +16,14 @@ function Scene({
 }) {
   return (
     <>
-      <ambientLight intensity={0.35} />
-      <directionalLight position={[4, 6, 4]} intensity={1.2} castShadow />
-      {/* "studio" HDRI — realistic reflections on fabric + logo */}
-      <Environment preset="studio" />
+      <ambientLight intensity={0.9} />
+      <directionalLight position={[4, 6, 4]} intensity={0.35} />
       <Suspense fallback={null}>
-        <HoodieModel {...hoodie} orbitRef={orbitRef} isLogoPlacementMode={isLogoPlacementMode} />
+        <HoodieModel
+          {...hoodie}
+          orbitRef={orbitRef}
+          isLogoPlacementMode={isLogoPlacementMode}
+        />
       </Suspense>
       <OrbitControls
         ref={orbitRef}
@@ -67,7 +69,6 @@ export function ModelViewer({
       <Canvas
         key={hoodie.modelUrl ?? "static"}
         className="touch-none"
-        shadows
         camera={{ position: [0, 0.65, 3.2], fov: 45, near: 0.1, far: 100 }}
         gl={{
           preserveDrawingBuffer: true,
@@ -79,7 +80,11 @@ export function ModelViewer({
         resize={{ offsetSize: true, debounce: { scroll: 0, resize: 0 } }}
       >
         <color attach="background" args={["#0c0f14"]} />
-        <Scene {...hoodie} orbitRef={orbitRef} isLogoPlacementMode={isLogoPlacementMode} />
+        <Scene
+          {...hoodie}
+          orbitRef={orbitRef}
+          isLogoPlacementMode={isLogoPlacementMode}
+        />
       </Canvas>
 
       {/* Generation progress overlay */}
@@ -105,7 +110,7 @@ export function ModelViewer({
       <p className="pointer-events-none absolute bottom-3 left-3 max-w-[min(100%,20rem)] text-xs leading-snug text-zinc-500">
         {isLogoPlacementMode ? (
           <span className="text-amber-300">
-            Drag on the hoodie to place your logo
+            Drag on the model to place your logo
           </span>
         ) : (
           <>Drag to rotate · Scroll to zoom</>

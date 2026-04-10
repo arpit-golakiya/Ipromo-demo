@@ -17,7 +17,6 @@ import type { DecalConfig } from "@/types/configurator";
 export const HOODIE_MODEL_PATH =
   "/models/sample_2026-04-06T094406.653.glb";
 
-
 type FlatMesh = {
   uuid: string;
   geometry: THREE.BufferGeometry;
@@ -25,7 +24,6 @@ type FlatMesh = {
   matrixWorld: THREE.Matrix4;
 };
 
-/** Snapshot world matrices so each mesh can render as a top-level identity child (drei `Decal` expects this). */
 function flattenMeshes(root: THREE.Object3D): FlatMesh[] {
   root.updateMatrixWorld(true);
   const out: FlatMesh[] = [];
@@ -42,7 +40,6 @@ function flattenMeshes(root: THREE.Object3D): FlatMesh[] {
   return out;
 }
 
-/** Uniform scale + offset to fit the camera framing (~2–3 units), memoized to avoid reflow fights during rerenders. */
 function normalizedDisplayRoot(scene: THREE.Object3D): THREE.Object3D {
   const root = scene.clone(true);
   const box = new THREE.Box3().setFromObject(root);
@@ -50,7 +47,6 @@ function normalizedDisplayRoot(scene: THREE.Object3D): THREE.Object3D {
   const center = box.getCenter(new THREE.Vector3());
   const size = box.getSize(new THREE.Vector3());
   const maxDim = Math.max(size.x, size.y, size.z, 1e-6);
-  // Slightly smaller than "fill the frame" so the full hoodie reads at first glance.
   const scale = 1.9 / maxDim;
   root.scale.multiplyScalar(scale);
   root.position.sub(center.multiplyScalar(scale));
@@ -58,7 +54,6 @@ function normalizedDisplayRoot(scene: THREE.Object3D): THREE.Object3D {
   return root;
 }
 
-/** Pick the main visible shell (most triangles first; world-radius as tie-breaker to avoid trim/collider picks). */
 function pickDecalMeshIndex(meshes: FlatMesh[]): number {
   let best = -1;
   let bestCount = -1;
@@ -82,11 +77,9 @@ function pickDecalMeshIndex(meshes: FlatMesh[]): number {
   return best >= 0 ? best : 0;
 }
 
-/** Decode via `HTMLImageElement` so pixels exist before mounting `Decal` (prevents blank textures). */
 function useLogoTexture(logoDataUrl: string | null): {
   texture: THREE.Texture | null;
   loadGeneration: number;
-  /** width / height of the source image — drives non-square decal scale so the logo is never cropped. */
   aspectRatio: number;
 } {
   const [texture, setTexture] = useState<THREE.Texture | null>(null);
@@ -142,20 +135,15 @@ function useLogoTexture(logoDataUrl: string | null): {
 }
 
 export type HoodieModelProps = {
-  color: string;
   logoDataUrl: string | null;
   decal: DecalConfig;
-  /** When set with a logo and placement mode is active, drag on the torso mesh moves decal position. */
   onDecalChange?: (next: DecalConfig) => void;
   orbitRef?: RefObject<OrbitControlsImpl | null>;
   isLogoPlacementMode?: boolean;
-  /** Override the static model path with a dynamically generated GLB URL. */
   modelUrl?: string;
 };
 
-/** Load the GLB, tint materials, and (optionally) project the logo via `Decal` onto the primary shell mesh. */
 export function HoodieModel({
-  color,
   logoDataUrl,
   decal,
   onDecalChange,
@@ -192,7 +180,6 @@ export function HoodieModel({
   const { texture: logoMap, loadGeneration: logoLoadGen, aspectRatio: logoAspect } =
     useLogoTexture(logoDataUrl);
 
-  /** Decal-mesh local bbox lets us store decal transforms as normalized [0..1] so share links survive GLB unit changes. */
   const decalGeoBBox = useMemo(() => {
     if (flatMeshes.length === 0) return null;
     const geo = flatMeshes[decalMeshIndex].geometry;
@@ -209,15 +196,13 @@ export function HoodieModel({
     [decalGeoBBox],
   );
 
-  /** Convert normalized [0..1] → mesh local-space absolute coords for rendering. */
   const decalLocal = useMemo((): DecalConfig & { scaleX: number; scaleY: number } => {
     const lerp = (t: number, min: number, max: number) => min + t * (max - min);
     const baseScale = decalGeoBBox && decalBBoxSize
       ? decal.scale * Math.min(decalBBoxSize.x, decalBBoxSize.y)
       : decal.scale;
-    // Preserve the logo's original aspect ratio so it is never squashed or cropped.
     const scaleX = logoAspect >= 1 ? baseScale * logoAspect : baseScale;
-    const scaleY = logoAspect < 1  ? baseScale / logoAspect : baseScale;
+    const scaleY = logoAspect < 1 ? baseScale / logoAspect : baseScale;
     const rotation: [number, number, number] = [...decal.rotation];
     return {
       position: decalGeoBBox ? [
@@ -232,7 +217,6 @@ export function HoodieModel({
     };
   }, [decal, decalGeoBBox, decalBBoxSize, logoAspect]);
 
-  /** Convert mesh local-space hit point → normalized [0..1] for state storage. */
   const localToNorm = useCallback(
     (local: THREE.Vector3): [number, number, number] => {
       if (!decalGeoBBox || !decalBBoxSize) {
@@ -264,7 +248,6 @@ export function HoodieModel({
       localHit.current.copy(hits[0].point);
       mesh.worldToLocal(localHit.current);
 
-      // Align to local surface normal to reduce stretching on curved areas; keep Z as the user-controlled “twist”.
       if (hits[0].face?.normal) {
         localFaceNormal.current.copy(hits[0].face.normal).normalize();
       } else {
@@ -340,36 +323,6 @@ export function HoodieModel({
     ],
   );
 
-  // Tint every mesh material (shared refs, so one write updates all instances).
-  useEffect(() => {
-    const c = new THREE.Color(color);
-    scene.traverse((obj) => {
-      if (obj instanceof THREE.Mesh) {
-        const mats = Array.isArray(obj.material)
-          ? obj.material
-          : [obj.material];
-        mats.forEach((mat) => {
-          if (mat instanceof THREE.MeshStandardMaterial) {
-            mat.color.copy(c);
-            mat.needsUpdate = true;
-          } else if (mat instanceof THREE.MeshPhysicalMaterial) {
-            mat.color.copy(c);
-            mat.needsUpdate = true;
-          } else if (
-            mat instanceof THREE.MeshLambertMaterial ||
-            mat instanceof THREE.MeshPhongMaterial
-          ) {
-            mat.color.copy(c);
-            mat.needsUpdate = true;
-          } else if (mat instanceof THREE.MeshBasicMaterial) {
-            mat.color.copy(c);
-            mat.needsUpdate = true;
-          }
-        });
-      }
-    });
-  }, [scene, color]);
-
   if (flatMeshes.length === 0) return null;
 
   return (
@@ -380,13 +333,10 @@ export function HoodieModel({
           matrix={m.matrixWorld}
           matrixAutoUpdate={false}
         >
-          {/* Keep the mesh at identity (world transform on the group) so drei `Decal` builds geometry in the correct local space. */}
           <mesh
             ref={index === decalMeshIndex ? decalMeshRef : undefined}
             geometry={m.geometry}
             material={m.material}
-            castShadow
-            receiveShadow
             onPointerDown={
               index === decalMeshIndex ? onDecalMeshPointerDown : undefined
             }
@@ -400,12 +350,9 @@ export function HoodieModel({
                 map={logoMap}
                 renderOrder={10}
                 {...{
-                  // depthTest ON so back-facing geometry occludes (prevents logo “bleeding” through).
                   "material-depthTest": true,
                   "material-depthWrite": false,
-                  // FrontSide only (never draw on back-facing triangles).
                   "material-side": THREE.FrontSide,
-                  // Polygon offset reduces z-fighting without disabling depth testing.
                   "material-polygonOffset": true,
                   "material-polygonOffsetFactor": -1,
                   "material-polygonOffsetUnits": -4,

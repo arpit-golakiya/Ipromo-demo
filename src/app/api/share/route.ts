@@ -11,7 +11,29 @@ type SharePayload = {
   taskId: string | null;
   /** Logo image stored as a data URL (we may later migrate this to Supabase Storage). */
   logoDataUrl: string | null;
+  /** PDP color variants — kept server-side so short /s/:id links restore all swatches. */
+  scrapedColors?: Array<{ label: string; hex: string }>;
 };
+
+const HEX6 = /^#[0-9A-Fa-f]{6}$/;
+
+function sanitizeScrapedColors(
+  raw: unknown,
+): Array<{ label: string; hex: string }> | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: Array<{ label: string; hex: string }> = [];
+  for (const item of raw.slice(0, 80)) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as { label?: unknown; hex?: unknown };
+    const label =
+      typeof o.label === "string" ? o.label.slice(0, 120).trim() : "";
+    let hex = typeof o.hex === "string" ? o.hex.trim() : "";
+    if (!hex.startsWith("#")) hex = `#${hex}`;
+    if (!HEX6.test(hex)) continue;
+    out.push({ label: label || hex, hex });
+  }
+  return out.length > 0 ? out : undefined;
+}
 
 const TABLE = "shared_configs";
 
@@ -27,12 +49,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 
+  const cleanedColors = sanitizeScrapedColors(payload.scrapedColors);
+  const payloadToStore: SharePayload = {
+    ...payload,
+    ...(cleanedColors ? { scrapedColors: cleanedColors } : {}),
+  };
+  if (!cleanedColors) delete payloadToStore.scrapedColors;
+
   try {
     const supabase = createServerSupabaseAdminClient();
     const { data, error } = await supabase
       .from(TABLE)
       .insert({
-        payload,
+        payload: payloadToStore,
         logo_url: null,
       })
       .select("id")

@@ -3,13 +3,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_DECAL, type DecalConfig } from "@/types/configurator";
 import type { ScrapedProduct } from "@/app/api/scrape/route";
-import type { MeshyTaskStatus } from "@/lib/meshy";
+import type { Hyper3dTaskStatus } from "@/lib/hyper3d";
 
 const DEFAULT_PRODUCT_NAME = "Custom Hoodie";
 
 type GenerateBatchItemInput = {
   key: string;
+  /** Primary thumbnail / first view */
   imageUrl: string;
+  /** Up to 5 views for one Rodin job (optional; defaults to `[imageUrl]`). */
+  imageUrls?: string[];
   colorLabel?: string;
   colorHex?: string;
 };
@@ -17,6 +20,7 @@ type GenerateBatchItemInput = {
 type GeneratedColorModel = {
   key: string;
   imageUrl: string;
+  imageUrls?: string[];
   colorLabel?: string;
   colorHex?: string;
   taskId: string | null;
@@ -29,7 +33,7 @@ type GeneratedColorModel = {
 function parseShareTaskId(raw: string | null): string | null {
   if (raw == null || raw === "") return null;
   const id = raw.trim();
-  if (id.length < 8 || id.length > 200) return null;
+  if (id.length < 8 || id.length > 4096) return null;
   if (!/^[a-zA-Z0-9_.-]+$/.test(id)) return null;
   return id;
 }
@@ -191,7 +195,7 @@ export function useConfiguratorState() {
 
   const loadPreloadedModels = useCallback(async (productUrl: string, images: string[]) => {
     try {
-      const res = await fetch(`/api/meshy/preloaded?productUrl=${encodeURIComponent(productUrl)}`);
+      const res = await fetch(`/api/hyper3d/preloaded?productUrl=${encodeURIComponent(productUrl)}`);
       const data: {
         items?: Array<{
           color_key: string;
@@ -267,6 +271,35 @@ export function useConfiguratorState() {
     }
   }, [loadPreloadedModels, stopPolling]);
 
+  const loadProductFromUploads = useCallback(
+    async (imageUrls: string[], productUrl?: string) => {
+      const cleanImages = [...new Set(imageUrls.map((u) => u.trim()).filter(Boolean))].slice(0, 40);
+      if (cleanImages.length === 0) return;
+      stopPolling();
+      setGeneratedModelTaskId(null);
+      setGeneratedColorModels([]);
+      setSelectedModelKey(null);
+      promptedStoreTokenRef.current = null;
+      setIsGeneratingModel(false);
+      setModelGenerationProgress(0);
+      setModelGenerationError(null);
+      setStorePreloadedError(null);
+      setProductLoadError(null);
+      setIsLoadingProduct(false);
+      setProductLoadedFromScrape(false);
+      setScrapedColors([]);
+      setScrapedImages(cleanImages);
+
+      const trimmedProductUrl = (productUrl ?? "").trim();
+      setLoadedProductUrl(trimmedProductUrl || null);
+      if (trimmedProductUrl) {
+        setDisplayUrl(trimmedProductUrl);
+      }
+      setProductName("Uploaded Product");
+    },
+    [stopPolling],
+  );
+
   const pollBatchStatuses = useCallback(async (items: GeneratedColorModel[]) => {
     const taskItems = items
       .filter((i) => i.taskId)
@@ -279,7 +312,7 @@ export function useConfiguratorState() {
 
     const poll = async () => {
       try {
-        const statusRes = await fetch("/api/meshy/batch-status", {
+        const statusRes = await fetch("/api/hyper3d/batch-status", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ items: taskItems }),
@@ -289,7 +322,7 @@ export function useConfiguratorState() {
             {
               key: string;
               taskId: string;
-            } & MeshyTaskStatus
+            } & Hyper3dTaskStatus
           >;
           error?: string;
         } = await statusRes.json();
@@ -352,7 +385,7 @@ export function useConfiguratorState() {
     setIsStoringPreloaded(true);
     setStorePreloadedError(null);
     try {
-      const res = await fetch("/api/meshy/batch-store", {
+      const res = await fetch("/api/hyper3d/batch-store", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -390,6 +423,7 @@ export function useConfiguratorState() {
       const initial: GeneratedColorModel[] = items.map((item) => ({
         key: item.key,
         imageUrl: item.imageUrl,
+        imageUrls: item.imageUrls?.length ? item.imageUrls : undefined,
         colorLabel: item.colorLabel,
         colorHex: item.colorHex,
         taskId: null,
@@ -402,11 +436,17 @@ export function useConfiguratorState() {
       promptedStoreTokenRef.current = null;
 
       try {
-        const res = await fetch("/api/meshy/batch-generate", {
+        const res = await fetch("/api/hyper3d/batch-generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            items,
+            items: items.map((it) => ({
+              key: it.key,
+              imageUrl: it.imageUrl,
+              ...(it.imageUrls && it.imageUrls.length > 0 ? { imageUrls: it.imageUrls } : {}),
+              colorLabel: it.colorLabel,
+              colorHex: it.colorHex,
+            })),
             removeLogosFor3D: options?.removeLogosFor3D === true,
           }),
         });
@@ -414,6 +454,7 @@ export function useConfiguratorState() {
           items?: Array<{
             key: string;
             imageUrl: string;
+            imageUrls?: string[];
             colorLabel?: string;
             colorHex?: string;
             taskId: string | null;
@@ -430,6 +471,7 @@ export function useConfiguratorState() {
         const started = data.items.map((item) => ({
           key: item.key,
           imageUrl: item.imageUrl,
+          imageUrls: item.imageUrls?.length ? item.imageUrls : undefined,
           colorLabel: item.colorLabel,
           colorHex: item.colorHex,
           taskId: item.taskId,
@@ -465,8 +507,19 @@ export function useConfiguratorState() {
   );
 
   const generateModelFromImage = useCallback(
-    async (imageUrl: string, options?: { removeLogosFor3D?: boolean }) => {
-      const one: GenerateBatchItemInput[] = [{ key: "single", imageUrl, colorLabel: "Selected Image" }];
+    async (imageUrl: string, options?: { removeLogosFor3D?: boolean; imageUrls?: string[] }) => {
+      const urls =
+        options?.imageUrls && options.imageUrls.length > 0
+          ? options.imageUrls.slice(0, 5)
+          : [imageUrl];
+      const one: GenerateBatchItemInput[] = [
+        {
+          key: "single",
+          imageUrl: urls[0],
+          imageUrls: urls.length > 1 ? urls : undefined,
+          colorLabel: "Selected variant",
+        },
+      ];
       await generateModelsBatch(one, options);
     },
     [generateModelsBatch],
@@ -488,12 +541,14 @@ export function useConfiguratorState() {
     if (!token || promptedStoreTokenRef.current === token) return;
     promptedStoreTokenRef.current = token;
 
-    const shouldStore = window.confirm(
-      `Generated ${successful.length} model(s). Do you want to store these for this product and preload next time?`,
-    );
-    if (shouldStore) {
-      void storeGeneratedModels();
-    }
+    // const shouldStore = window.confirm(
+    //   `Generated ${successful.length} model(s). Do you want to store these for this product and preload next time?`,
+    // );
+    // if (shouldStore) {
+    //   void storeGeneratedModels();
+    // }
+    // Auto-save generated models once a completed batch is detected.
+    void storeGeneratedModels();
   }, [generatedColorModels, isGeneratingModel, loadedProductUrl, storeGeneratedModels]);
 
   const syncTaskIdFromUrl = useCallback((rawTaskId: string | null) => {
@@ -516,7 +571,7 @@ export function useConfiguratorState() {
   }, [generatedColorModels, generatedModelTaskId, selectedModelKey]);
 
   const generatedModelUrl = activeModelTaskId
-    ? `/api/meshy/model?taskId=${encodeURIComponent(activeModelTaskId)}`
+    ? `/api/hyper3d/model?taskId=${encodeURIComponent(activeModelTaskId)}`
     : null;
 
   const copyShareLink = useCallback(async () => {
@@ -564,6 +619,7 @@ export function useConfiguratorState() {
     isLoadingProduct,
     productLoadError,
     loadProductFromUrl,
+    loadProductFromUploads,
     generatedColorModels,
     selectedModelKey,
     setSelectedModelKey,

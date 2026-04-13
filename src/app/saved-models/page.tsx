@@ -42,7 +42,7 @@ export default function SavedModelsPage() {
       setIsLoading(true);
       setError(null);
       try {
-        const res = await fetch("/api/meshy/saved?limit=300");
+        const res = await fetch("/api/hyper3d/saved?limit=300");
         const data: { items?: SavedItem[]; error?: string } = await res.json();
         if (!res.ok || !Array.isArray(data.items)) {
           if (mounted) setError(data.error ?? "Failed to load saved models");

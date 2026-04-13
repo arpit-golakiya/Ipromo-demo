@@ -1,12 +1,16 @@
 "use client";
 
-import { Environment, OrbitControls } from "@react-three/drei";
+import { OrbitControls, Stage } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { Suspense, useRef, type RefObject } from "react";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { HoodieModel, type HoodieModelProps } from "@/components/HoodieModel";
 
+/**
+ * Lighting / framing aligned with `GLB_DEMO/frontend/src/Model.jsx` (Stage + city + low ambient).
+ * Logo placement and decals stay in `HoodieModel` unchanged.
+ */
 function Scene({
   orbitRef,
   isLogoPlacementMode,
@@ -17,25 +21,28 @@ function Scene({
 }) {
   return (
     <>
-      {/* PBR models (like Meshy GLBs) often look black without environment lighting (IBL). */}
-      <Environment preset="studio" />
-      <ambientLight intensity={0.65} />
-      <directionalLight position={[4, 6, 4]} intensity={1.1} />
-      <directionalLight position={[-4, 2, -2]} intensity={0.45} />
+      <ambientLight intensity={0.25} />
       <Suspense fallback={null}>
-        <HoodieModel
-          {...hoodie}
-          orbitRef={orbitRef}
-          isLogoPlacementMode={isLogoPlacementMode}
-        />
+        <Stage
+          intensity={0.5}
+          environment="city"
+          adjustCamera={1.15}
+          shadows={false}
+        >
+          <HoodieModel
+            {...hoodie}
+            orbitRef={orbitRef}
+            isLogoPlacementMode={isLogoPlacementMode}
+          />
+        </Stage>
       </Suspense>
       <OrbitControls
         ref={orbitRef}
         enabled={!isLogoPlacementMode}
         enableDamping
         dampingFactor={0.08}
-        minDistance={1.6}
-        maxDistance={6}
+        minDistance={0.2}
+        maxDistance={80}
         target={[0, 0, 0]}
       />
     </>
@@ -73,12 +80,9 @@ export function ModelViewer({
       <Canvas
         key={hoodie.modelUrl ?? "static"}
         className="touch-none"
-        camera={{ position: [0, 0.65, 3.2], fov: 45, near: 0.1, far: 100 }}
+        camera={{ position: [2.2, 1.6, 2.2], fov: 45, near: 0.1, far: 100 }}
         onCreated={({ gl }) => {
-          // Make sure color management + tonemapping are appropriate for GLTF PBR materials.
           gl.outputColorSpace = THREE.SRGBColorSpace;
-          gl.toneMapping = THREE.ACESFilmicToneMapping;
-          gl.toneMappingExposure = 1.05;
         }}
         gl={{
           preserveDrawingBuffer: true,
@@ -89,7 +93,7 @@ export function ModelViewer({
         dpr={[1, 2]}
         resize={{ offsetSize: true, debounce: { scroll: 0, resize: 0 } }}
       >
-        <color attach="background" args={["#0c0f14"]} />
+        <color attach="background" args={["#0c0c12"]} />
         <Scene
           {...hoodie}
           orbitRef={orbitRef}

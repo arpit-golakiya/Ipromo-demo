@@ -48,6 +48,7 @@ export default function Configurator({ shareId }: { shareId?: string }) {
     isLoadingProduct,
     productLoadError,
     loadProductFromUrl,
+    loadProductFromUploads,
     generatedModelUrl,
     generatedColorModels,
     selectedModelKey,
@@ -55,7 +56,6 @@ export default function Configurator({ shareId }: { shareId?: string }) {
     isGeneratingModel,
     modelGenerationProgress,
     modelGenerationError,
-    generateModelFromImage,
     generateModelsBatch,
     resetGeneratedModel,
     isStoringPreloaded,
@@ -92,6 +92,7 @@ export default function Configurator({ shareId }: { shareId?: string }) {
             displayUrl={displayUrl}
             onDisplayUrlChange={setDisplayUrl}
             onLoadProduct={loadProductFromUrl}
+            onLoadUploadedImages={loadProductFromUploads}
             isLoadingProduct={isLoadingProduct}
             productLoadError={productLoadError}
             scrapedColors={scrapedColors}
@@ -110,7 +111,6 @@ export default function Configurator({ shareId }: { shareId?: string }) {
             isGeneratingModel={isGeneratingModel}
             modelGenerationProgress={modelGenerationProgress}
             modelGenerationError={modelGenerationError}
-            onGenerateModel={generateModelFromImage}
             onGenerateModelsBatch={generateModelsBatch}
             onResetModel={resetGeneratedModel}
             isStoringPreloaded={isStoringPreloaded}

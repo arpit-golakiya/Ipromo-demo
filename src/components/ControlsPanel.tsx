@@ -1,50 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { DecalConfig } from "@/types/configurator";
 import { downloadConfiguratorPdf } from "@/lib/pdfExport";
 import type { ScrapedProduct } from "@/app/api/scrape/route";
+import {
+  ModelGroupsSetupSection,
+  type ImageGroup,
+} from "@/components/ModelGroupsSetupSection";
 
 const LOGO_MAX_PX = 256;
-
-function normalizeImageName(rawUrl: string): string {
-  try {
-    const u = new URL(rawUrl);
-    const decodedPath = decodeURIComponent(u.pathname);
-    const file = decodedPath.split("/").pop() ?? decodedPath;
-    return file.toLowerCase().replace(/\.[a-z0-9]+$/i, "");
-  } catch {
-    const cleaned = decodeURIComponent(rawUrl);
-    const file = cleaned.split("/").pop() ?? cleaned;
-    return file.toLowerCase().replace(/\.[a-z0-9]+$/i, "");
-  }
-}
-
-function deriveColorLabelForImage(
-  imageUrl: string,
-  scrapedImages: string[],
-  scrapedColors: ScrapedProduct["colors"],
-): { label: string; hex?: string } {
-  const directIdx = scrapedImages.indexOf(imageUrl);
-  if (directIdx >= 0 && scrapedColors[directIdx]?.label) {
-    return {
-      label: scrapedColors[directIdx].label,
-      hex: scrapedColors[directIdx].hex,
-    };
-  }
-
-  const imageToken = normalizeImageName(imageUrl);
-  for (const c of scrapedColors) {
-    const labelToken = c.label.toLowerCase().replace(/[^a-z0-9]+/g, "");
-    if (!labelToken) continue;
-    if (imageToken.includes(labelToken)) {
-      return { label: c.label, hex: c.hex };
-    }
-  }
-
-  const oneBased = directIdx >= 0 ? directIdx + 1 : 1;
-  return { label: `Image ${oneBased}` };
-}
 
 async function compressLogoImage(dataUrl: string): Promise<string> {
   if (dataUrl.startsWith("data:image/svg")) return dataUrl;
@@ -136,6 +102,7 @@ export type ControlsPanelProps = {
   displayUrl: string;
   onDisplayUrlChange: (v: string) => void;
   onLoadProduct: (url: string) => void;
+  onLoadUploadedImages: (imageUrls: string[], productUrl?: string) => void;
   isLoadingProduct: boolean;
   productLoadError: string | null;
   scrapedColors: ScrapedProduct["colors"];
@@ -152,6 +119,7 @@ export type ControlsPanelProps = {
   generatedColorModels: Array<{
     key: string;
     imageUrl: string;
+    imageUrls?: string[];
     colorLabel?: string;
     colorHex?: string;
     taskId: string | null;
@@ -165,14 +133,11 @@ export type ControlsPanelProps = {
   isGeneratingModel: boolean;
   modelGenerationProgress: number;
   modelGenerationError: string | null;
-  onGenerateModel: (
-    imageUrl: string,
-    options?: { removeLogosFor3D?: boolean },
-  ) => void;
   onGenerateModelsBatch: (
     items: Array<{
       key: string;
       imageUrl: string;
+      imageUrls?: string[];
       colorLabel?: string;
       colorHex?: string;
     }>,
@@ -195,6 +160,7 @@ export function ControlsPanel({
   displayUrl,
   onDisplayUrlChange,
   onLoadProduct,
+  onLoadUploadedImages,
   isLoadingProduct,
   productLoadError,
   scrapedColors,
@@ -213,7 +179,6 @@ export function ControlsPanel({
   isGeneratingModel,
   modelGenerationProgress,
   modelGenerationError,
-  onGenerateModel,
   onGenerateModelsBatch,
   onResetModel,
   isStoringPreloaded,
@@ -224,25 +189,46 @@ export function ControlsPanel({
   captureElementId,
 }: ControlsPanelProps) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const groupIdRef = useRef(0);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
-  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
-  const [selectedImageUrls, setSelectedImageUrls] = useState<string[]>([]);
+  /** URLs currently checked in the "available" pool (not yet in a group). */
+  const [selection, setSelection] = useState<string[]>([]);
+  /** Each group → one 3D job (multi-view when more than one URL). */
+  const [groups, setGroups] = useState<ImageGroup[]>([]);
   const [removeWhiteBg, setRemoveWhiteBg] = useState(true);
-  /** Strip PDP/model logos via OpenAI before Meshy (same prompt as test.py). */
+  /** Strip PDP logos / people via OpenAI before 3D (any product type). */
   const [removeLogosFor3D, setRemoveLogosFor3D] = useState(false);
   const [copied, setCopied] = useState(false);
   const [logoDropActive, setLogoDropActive] = useState(false);
+  /** Full-screen setup for 3D groups; opens automatically when product images load. */
+  const [modelModalOpen, setModelModalOpen] = useState(false);
+  const [modelPortalReady, setModelPortalReady] = useState(false);
+  const [uploadProductUrl, setUploadProductUrl] = useState("");
 
-  // Auto-select the first scraped image whenever a new product is loaded
+  const scrapeKey = scrapedImages.join("\u0001");
+
+  const assignedUrls = useMemo(
+    () => new Set(groups.flatMap((g) => g.imageUrls)),
+    [groups],
+  );
+
+  const availableUrls = useMemo(
+    () => scrapedImages.filter((u) => !assignedUrls.has(u)),
+    [scrapedImages, assignedUrls],
+  );
+
   useEffect(() => {
-    setSelectedImageUrl(null);
-    setSelectedImageUrls([]);
-  }, [scrapedImages]);
+    setGroups([]);
+    setSelection([]);
+    if (scrapedImages.length > 0) setModelModalOpen(true);
+    else setModelModalOpen(false);
+  }, [scrapeKey, scrapedImages.length]);
+
+  useEffect(() => {
+    setModelPortalReady(true);
+  }, []);
 
   const successCount = generatedColorModels.filter((m) => m.status === "SUCCEEDED").length;
-  const failedCount = generatedColorModels.filter(
-    (m) => m.status === "FAILED" || m.status === "EXPIRED",
-  ).length;
 
   // Modern browsers handle URLs up to ~100 KB without issues.
   // Logos are compressed to 256 px on upload, so this is only triggered by
@@ -332,6 +318,36 @@ export function ControlsPanel({
 
   const rotateDeg = Math.round((decal.rotation[2] * 180) / Math.PI);
 
+  async function fileToDataUrl(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") resolve(reader.result);
+        else reject(new Error("Could not read file"));
+      };
+      reader.onerror = () => reject(new Error("Could not read file"));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handleProductImagesUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []).filter((f) => f.type.startsWith("image/"));
+    if (files.length === 0) {
+      e.target.value = "";
+      return;
+    }
+
+    const capped = files.slice(0, 40);
+    try {
+      const dataUrls = await Promise.all(capped.map((f) => fileToDataUrl(f)));
+      onLoadUploadedImages(dataUrls, uploadProductUrl.trim() || undefined);
+    } catch {
+      alert("Could not read one or more uploaded images.");
+    } finally {
+      e.target.value = "";
+    }
+  }
+
   return (
     <aside className="flex h-auto min-h-0 flex-col gap-4 overflow-visible rounded-xl border border-white/10 bg-zinc-900/80 p-4 shadow-xl backdrop-blur-sm sm:gap-5 sm:p-5 md:h-full md:overflow-y-auto">
       <header>
@@ -397,209 +413,74 @@ export function ControlsPanel({
         ) : null}
       </div>
 
-      {/* ── Generate 3D Model section ── */}
+      {/* ── Direct image upload (optional product URL) ── */}
+      <div className="flex flex-col gap-2 rounded-lg border border-white/10 bg-black/20 p-3">
+        <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+          Upload Product Images
+        </span>
+        <p className="text-xs text-zinc-500">
+          Upload product photos directly and use the same group-based 3D flow.
+        </p>
+        <input
+          type="url"
+          value={uploadProductUrl}
+          onChange={(e) => setUploadProductUrl(e.target.value)}
+          className="min-w-0 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-200 outline-none ring-blue-500/40 focus:ring-2"
+          placeholder="Optional product_url (for auto-save/preload mapping)"
+        />
+        <input
+          type="file"
+          accept="image/*"
+          multiple
+          onChange={(e) => void handleProductImagesUpload(e)}
+          className="w-full text-sm text-zinc-300 file:mr-3 file:rounded-md file:border-0 file:bg-indigo-600 file:px-3 file:py-1.5 file:text-sm file:text-white hover:file:bg-indigo-500"
+        />
+        <p className="text-[11px] text-zinc-500">
+          You can upload up to 40 images per load.
+        </p>
+      </div>
+
+      {/* ── 3D: compact summary in sidebar (full UI in modal) ── */}
       {scrapedImages.length > 0 && (
-        <div className="flex flex-col gap-3 rounded-lg border border-white/10 bg-black/30 p-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-              Generate 3D Model
-            </span>
-            {generatedModelUrl && !isGeneratingModel && (
-              <button
-                type="button"
-                onClick={onResetModel}
-                className="text-xs text-zinc-500 hover:text-red-400 transition"
-              >
-                Reset to default
-              </button>
-            )}
-          </div>
-
-          {/* Image thumbnails */}
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            {scrapedImages.map((url) => (
-              <div key={url} className="relative">
-                <button
-                  type="button"
-                  title="Use this image for 3D generation"
-                  onClick={() => setSelectedImageUrl(url)}
-                  className={`relative shrink-0 h-16 w-16 overflow-hidden rounded-md border-2 transition ${
-                    selectedImageUrl === url
-                      ? "border-blue-500 ring-2 ring-blue-500/40"
-                      : "border-white/10 hover:border-white/30"
-                  }`}
-                >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={url}
-                  alt="Product image"
-                  className="h-full w-full object-cover"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = "none";
-                  }}
-                />
-                {selectedImageUrl === url && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-blue-500/20">
-                    <svg viewBox="0 0 24 24" className="h-5 w-5 text-blue-300" fill="none" stroke="currentColor" strokeWidth="2.5">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                  </div>
-                )}
-                </button>
-                <label className="absolute -right-1 -top-1 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={selectedImageUrls.includes(url)}
-                    onChange={(e) => {
-                      setSelectedImageUrls((prev) =>
-                        e.target.checked ? [...prev, url] : prev.filter((v) => v !== url),
-                      );
-                    }}
-                    className="h-4 w-4 accent-indigo-500"
-                    aria-label="Select image for batch generation"
-                  />
-                </label>
-              </div>
-            ))}
-          </div>
-          <p className="text-xs text-zinc-500">
-            Selected for parallel generation: {selectedImageUrls.length}
-          </p>
-
-          {/* Progress bar (visible during generation) */}
-          {isGeneratingModel && (
-            <div className="flex flex-col gap-1.5">
-              <div className="flex items-center justify-between text-xs text-zinc-400">
-                <span className="flex items-center gap-1.5">
-                  <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                  </svg>
-                  {removeLogosFor3D
-                    ? "Cleaning image, then converting to 3D…"
-                    : "Converting to 3D…"}
-                </span>
-                <span className="font-mono">{modelGenerationProgress}%</span>
-              </div>
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-700">
-                <div
-                  className="h-full rounded-full bg-blue-500 transition-all duration-500"
-                  style={{ width: `${modelGenerationProgress}%` }}
-                />
-              </div>
-              <p className="text-xs text-zinc-500">
-                This usually takes 1–3 minutes. You can keep editing while waiting.
+        <div className="flex flex-col gap-2 rounded-lg border border-white/10 bg-black/30 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                3D models
+              </span>
+              <p className="mt-0.5 truncate text-xs text-zinc-400">
+                {groups.length} group{groups.length === 1 ? "" : "s"}
+                {isGeneratingModel ? ` · generating ${modelGenerationProgress}%` : ""}
+                {!isGeneratingModel && successCount > 0 ? ` · ${successCount} ready` : ""}
+                {!isGeneratingModel && successCount === 0 && groups.length === 0
+                  ? " · open window to set up"
+                  : ""}
               </p>
             </div>
-          )}
-
-          {/* Success state */}
-          {generatedModelUrl && !isGeneratingModel && (
-            <div className="space-y-1">
-              <p className="text-xs text-emerald-400">
-                ✓ Generated {successCount} model{successCount === 1 ? "" : "s"}
-                {failedCount > 0 ? ` (${failedCount} failed)` : ""}
-              </p>
-              {successCount > 0 && (
-                <select
-                  value={selectedModelKey ?? ""}
-                  onChange={(e) => onSelectedModelKeyChange(e.target.value || null)}
-                  className="w-full rounded-md border border-white/15 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
-                >
-                  <option value="">Select generated model to preview</option>
-                  {generatedColorModels
-                    .filter((m) => m.status === "SUCCEEDED")
-                    .map((m) => (
-                      <option key={m.key} value={m.key}>
-                        {m.colorLabel ?? m.key}
-                        {m.fromPreload ? " (preloaded)" : ""}
-                      </option>
-                    ))}
-                </select>
-              )}
-            </div>
-          )}
-
-          {/* Error state */}
-          {modelGenerationError && !isGeneratingModel && (
-            <p className="text-xs text-red-400">{modelGenerationError}</p>
-          )}
-
-          <label className="flex cursor-pointer items-center gap-2 text-xs text-zinc-400 select-none">
-            <div
-              role="checkbox"
-              aria-checked={removeLogosFor3D}
-              onClick={() => setRemoveLogosFor3D((v) => !v)}
-              className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors ${
-                removeLogosFor3D ? "bg-indigo-600" : "bg-zinc-600"
-              }`}
+            <button
+              type="button"
+              onClick={() => setModelModalOpen(true)}
+              className="shrink-0 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-medium text-white transition hover:bg-indigo-500"
             >
-              <span
-                className={`inline-block h-3 w-3 rounded-full bg-white shadow transition-transform ${
-                  removeLogosFor3D ? "translate-x-3.5" : "translate-x-0.5"
-                }`}
-              />
-            </div>
-            <span>
-              Remove logos &amp; model from photo first{" "}
-              {/* <span className="text-zinc-500">(OpenAI, slower)</span> */}
-            </span>
-          </label>
-
-          {/* Generate button */}
-          {!isGeneratingModel && (
-            <div className="flex flex-col gap-2">
-              <button
-                type="button"
-                disabled={!selectedImageUrl || isGeneratingModel}
-                onClick={() => {
-                  if (selectedImageUrl) {
-                    onGenerateModel(selectedImageUrl, {
-                      removeLogosFor3D,
-                    });
-                  }
-                }}
-                className="w-full rounded-lg bg-indigo-600 px-3 py-2.5 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Generate Single 3D Model
-              </button>
-              <button
-                type="button"
-                disabled={selectedImageUrls.length === 0 || isGeneratingModel}
-                onClick={() => {
-                  const items = selectedImageUrls.map((imageUrl, idx) => {
-                    const match = deriveColorLabelForImage(
-                      imageUrl,
-                      scrapedImages,
-                      scrapedColors,
-                    );
-                    return {
-                      key: `img-${idx + 1}`,
-                      imageUrl,
-                      colorLabel: match.label,
-                      colorHex: match.hex,
-                    };
-                  });
-                  onGenerateModelsBatch(items, { removeLogosFor3D });
-                }}
-                className="w-full rounded-lg bg-emerald-600 px-3 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Generate Selected in Parallel ({selectedImageUrls.length})
-              </button>
-              {successCount > 0 && (
-                <button
-                  type="button"
-                  disabled={isStoringPreloaded}
-                  onClick={onStorePreloaded}
-                  className="w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-medium text-zinc-100 transition hover:bg-white/10 disabled:opacity-60"
-                >
-                  {isStoringPreloaded ? "Storing..." : "Store generated models for preload"}
-                </button>
-              )}
-              {storePreloadedError && (
-                <p className="text-xs text-red-400">{storePreloadedError}</p>
-              )}
-            </div>
+              Open setup
+            </button>
+          </div>
+          {!modelModalOpen && generatedModelUrl && !isGeneratingModel && successCount > 0 && (
+            <select
+              value={selectedModelKey ?? ""}
+              onChange={(e) => onSelectedModelKeyChange(e.target.value || null)}
+              className="w-full rounded-md border border-white/15 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
+            >
+              <option value="">Preview variant…</option>
+              {generatedColorModels
+                .filter((m) => m.status === "SUCCEEDED")
+                .map((m) => (
+                  <option key={m.key} value={m.key}>
+                    {m.colorLabel ?? m.key}
+                    {m.fromPreload ? " (preloaded)" : ""}
+                  </option>
+                ))}
+            </select>
           )}
         </div>
       )}
@@ -778,12 +659,86 @@ export function ControlsPanel({
         </button>
       </div>
 
+      {modelPortalReady &&
+        modelModalOpen &&
+        scrapedImages.length > 0 &&
+        createPortal(
+          <div
+            role="dialog"
+            aria-modal
+            aria-labelledby="setup-3d-title"
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-3 backdrop-blur-sm sm:p-5"
+            onClick={() => setModelModalOpen(false)}
+          >
+            <div
+              className="flex max-h-[min(92vh,880px)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/10 bg-zinc-900 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex shrink-0 items-start justify-between gap-3 border-b border-white/10 px-4 py-3 sm:px-5">
+                <div className="min-w-0">
+                  <h2 id="setup-3d-title" className="truncate text-base font-semibold text-white">
+                    Build 3D models
+                  </h2>
+                  <p className="mt-0.5 truncate text-xs text-zinc-500">{productName}</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  {generatedModelUrl && !isGeneratingModel ? (
+                    <button
+                      type="button"
+                      onClick={onResetModel}
+                      className="rounded-md px-2 py-1 text-xs text-zinc-400 hover:bg-white/10 hover:text-red-300"
+                    >
+                      Reset
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="rounded-lg p-2 text-zinc-400 transition hover:bg-white/10 hover:text-white"
+                    aria-label="Close"
+                    onClick={() => setModelModalOpen(false)}
+                  >
+                    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-5 pt-3 sm:px-5">
+                <ModelGroupsSetupSection
+                  scrapedImages={scrapedImages}
+                  scrapedColors={scrapedColors}
+                  groups={groups}
+                  setGroups={setGroups}
+                  selection={selection}
+                  setSelection={setSelection}
+                  groupIdRef={groupIdRef}
+                  availableUrls={availableUrls}
+                  removeLogosFor3D={removeLogosFor3D}
+                  setRemoveLogosFor3D={setRemoveLogosFor3D}
+                  isGeneratingModel={isGeneratingModel}
+                  modelGenerationProgress={modelGenerationProgress}
+                  modelGenerationError={modelGenerationError}
+                  generatedColorModels={generatedColorModels}
+                  selectedModelKey={selectedModelKey}
+                  onSelectedModelKeyChange={onSelectedModelKeyChange}
+                  onGenerateModelsBatch={onGenerateModelsBatch}
+                  isStoringPreloaded={isStoringPreloaded}
+                  storePreloadedError={storePreloadedError}
+                  onStorePreloaded={onStorePreloaded}
+                  setLightboxSrc={setLightboxSrc}
+                />
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+
       {/* ── Lightbox overlay ── */}
       {lightboxSrc && (
         <div
           role="dialog"
           aria-modal
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
           onClick={() => setLightboxSrc(null)}
         >
           <div

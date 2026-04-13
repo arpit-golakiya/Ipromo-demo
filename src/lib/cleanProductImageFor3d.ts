@@ -1,36 +1,39 @@
 import OpenAI from "openai";
 import type { Response } from "openai/resources/responses/responses";
 
-/** Same model as `test.py` */
+/** Image-edit model for PDP cleanup before 3D (Rodin, etc.). */
 export const PRODUCT_CLEAN_MODEL = "gpt-5";
 
 /**
- * Same instructions as `test.py` (logo / model removal for e-commerce shirt photo).
+ * Product-agnostic prompt: any promo / e-commerce item (apparel, electronics,
+ * drinkware, bags, gadgets, etc.) — strip people and surface branding only.
  */
-export const PRODUCT_CLEAN_PROMPT = `You are an expert product image editor.
+export const PRODUCT_CLEAN_PROMPT = `You are an expert product image editor for e-commerce and promotional merchandise.
 
 TASK:
-Transform the given image into a professional e-commerce product photo of ONLY the t-shirt.
+Transform the given image into a single clean product shot suitable for 3D reconstruction: the SAME physical product as in the photo, with NO people and NO printed or applied branding on the product.
+
+IDENTIFY THE PRODUCT:
+- Treat the main sellable object in the frame as "the product" (one primary item). It may be apparel, a device, a bottle, a bag, a tracker, a tool, or any other promo item — do not assume it is a shirt.
 
 STRICT INSTRUCTIONS:
-- Completely remove any human, model, face, arms, or body parts
-- Remove ALL logos, text, branding, graphics, or prints from the t-shirt
-- Preserve the EXACT original t-shirt color (do not change color)
-- Preserve fabric texture and natural folds as much as possible
-- Reconstruct missing areas realistically (no blur, no artifacts)
+- Completely remove any human, model, face, hands, arms, or body parts from the image
+- Remove ALL logos, text, slogans, brand names, graphics, stickers, labels, or prints that appear ON the product surface (including embossed or printed areas)
+- Preserve the EXACT original product color, finish, and material look (matte vs glossy, metal vs plastic) — do not shift hue to make it lighter or a different color
+- Preserve the product's true shape, proportions, and important physical details (buttons, holes, curves, seams) except where you must inpaint over removed branding
+- Reconstruct areas where branding was removed so they match the surrounding material realistically (no blur, no smear, no fake new logos)
 
 OUTPUT REQUIREMENTS:
-- Only a plain t-shirt (no person)
-- Centered, front-facing
-- Clean, symmetrical shape
-- Studio lighting
+- Only the product (no person, no extra props unless they were clearly part of the product in the original)
+- Same general camera angle and framing as the source when reasonable
+- Studio-style lighting
 - Plain white or light neutral background
-- High-quality e-commerce style image
+- High-quality catalog-style image
 
 IMPORTANT:
-- Do NOT add new logos or designs
-- Do NOT change t-shirt type
-- Do NOT hallucinate extra elements`;
+- Do NOT add new logos, text, or decorative graphics anywhere
+- Do NOT change the product category (do not turn a bottle into a shirt, etc.)
+- Do NOT hallucinate accessories or a different product`;
 
 function mediaTypeForImage(buffer: Buffer, contentType: string, sourceUrl: string): string {
   const ct = contentType.toLowerCase();
@@ -64,10 +67,10 @@ function pickGeneratedImageBase64(response: Response): string | null {
 }
 
 /**
- * Calls OpenAI Responses API with image_generation tool (same behavior as test.py).
- * Returns a Meshy-ready data URI (PNG/JPEG base64). Nothing is written to disk.
+ * Calls OpenAI Responses API with image_generation tool.
+ * Returns a PNG data URI suitable for 3D APIs (e.g. Rodin). Nothing is written to disk.
  */
-export async function cleanProductImageBufferToMeshyDataUrl(
+export async function cleanProductImageBufferToDataUrl(
   buffer: Buffer,
   contentType: string,
   sourceUrlForHints: string,
@@ -86,7 +89,7 @@ export async function cleanProductImageBufferToMeshyDataUrl(
     maxRetries: 1,
   });
 
-  // SDK `Content` typings lag the Responses API; shape matches `test.py` / OpenAI docs.
+  // SDK `Content` typings lag the Responses API; shape matches OpenAI docs.
   const raw = await client.responses.create({
     model: PRODUCT_CLEAN_MODEL,
     tools: [{ type: "image_generation" }],
@@ -114,7 +117,7 @@ export async function cleanProductImageBufferToMeshyDataUrl(
     throw new Error("OpenAI did not return a generated image");
   }
 
-  // Model returns raster base64; Meshy accepts data URIs
+  // Model returns raster base64; downstream accepts data URIs
   return `data:image/png;base64,${imageData}`;
 }
 

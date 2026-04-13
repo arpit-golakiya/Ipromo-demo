@@ -7,7 +7,7 @@ type SharePayload = {
   productName: string;
   color: string;
   decal: DecalConfig;
-  /** Optional Meshy task id so the shared link can restore generated model. */
+  /** Optional Rodin / Hyper3D task reference so the shared link can restore generated model. */
   taskId: string | null;
   /** Logo image stored as a data URL (we may later migrate this to Supabase Storage). */
   logoDataUrl: string | null;

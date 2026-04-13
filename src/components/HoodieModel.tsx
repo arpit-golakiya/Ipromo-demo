@@ -15,7 +15,7 @@ import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import type { DecalConfig } from "@/types/configurator";
 
 export const HOODIE_MODEL_PATH =
-  "/models/Meshy_AI_Tudor_Wireless_Earbud_0410154118_generate.glb";
+  "/models/tshirt_multiple.glb";
 
 type FlatMesh = {
   uuid: string;

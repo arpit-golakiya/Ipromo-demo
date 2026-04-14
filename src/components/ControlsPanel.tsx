@@ -1,14 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useRef, useState } from "react";
 import type { DecalConfig } from "@/types/configurator";
 import { downloadConfiguratorPdf } from "@/lib/pdfExport";
-import type { ScrapedProduct } from "@/app/api/scrape/route";
-import {
-  ModelGroupsSetupSection,
-  type ImageGroup,
-} from "@/components/ModelGroupsSetupSection";
+import type { LibraryItem, LibraryProduct } from "@/hooks/useConfiguratorState";
 
 const LOGO_MAX_PX = 256;
 
@@ -99,54 +94,19 @@ async function removeWhiteBackground(dataUrl: string, tolerance = 40): Promise<s
 
 export type ControlsPanelProps = {
   productName: string;
-  displayUrl: string;
-  onDisplayUrlChange: (v: string) => void;
-  onLoadProduct: (url: string) => void;
-  onLoadUploadedImages: (imageUrls: string[], productUrl?: string) => void;
-  isLoadingProduct: boolean;
-  productLoadError: string | null;
-  scrapedColors: ScrapedProduct["colors"];
-  productLoadedFromScrape: boolean;
-  scrapedImages: string[];
+  libraryQuery: string;
+  libraryProducts: LibraryProduct[];
+  isLoadingLibrary: boolean;
+  libraryError: string | null;
+  onSearchLibrary: (q: string) => void;
+  selectedModelId: string | null;
+  onSelectModel: (item: LibraryItem | null) => void;
   logoDataUrl: string | null;
   onLogoDataUrlChange: (dataUrl: string | null) => void;
   isLogoPlacementMode: boolean;
   onLogoPlacementModeChange: (v: boolean) => void;
   decal: DecalConfig;
   onDecalChange: (next: DecalConfig) => void;
-  // 3D model generation
-  generatedModelUrl: string | null;
-  generatedColorModels: Array<{
-    key: string;
-    imageUrl: string;
-    imageUrls?: string[];
-    colorLabel?: string;
-    colorHex?: string;
-    taskId: string | null;
-    status: "QUEUED" | "PENDING" | "IN_PROGRESS" | "SUCCEEDED" | "FAILED" | "EXPIRED";
-    progress: number;
-    error: string | null;
-    fromPreload?: boolean;
-  }>;
-  selectedModelKey: string | null;
-  onSelectedModelKeyChange: (key: string | null) => void;
-  isGeneratingModel: boolean;
-  modelGenerationProgress: number;
-  modelGenerationError: string | null;
-  onGenerateModelsBatch: (
-    items: Array<{
-      key: string;
-      imageUrl: string;
-      imageUrls?: string[];
-      colorLabel?: string;
-      colorHex?: string;
-    }>,
-    options?: { removeLogosFor3D?: boolean },
-  ) => void;
-  onResetModel: () => void;
-  isStoringPreloaded: boolean;
-  storePreloadedError: string | null;
-  onStorePreloaded: () => void;
   shareUrl: string;
   onCopyShare: () => void;
   captureElementId: string;
@@ -157,78 +117,29 @@ export type ControlsPanelProps = {
  */
 export function ControlsPanel({
   productName,
-  displayUrl,
-  onDisplayUrlChange,
-  onLoadProduct,
-  onLoadUploadedImages,
-  isLoadingProduct,
-  productLoadError,
-  scrapedColors,
-  productLoadedFromScrape,
-  scrapedImages,
+  libraryQuery,
+  libraryProducts,
+  isLoadingLibrary,
+  libraryError,
+  onSearchLibrary,
+  selectedModelId,
+  onSelectModel,
   logoDataUrl,
   onLogoDataUrlChange,
   isLogoPlacementMode,
   onLogoPlacementModeChange,
   decal,
   onDecalChange,
-  generatedModelUrl,
-  generatedColorModels,
-  selectedModelKey,
-  onSelectedModelKeyChange,
-  isGeneratingModel,
-  modelGenerationProgress,
-  modelGenerationError,
-  onGenerateModelsBatch,
-  onResetModel,
-  isStoringPreloaded,
-  storePreloadedError,
-  onStorePreloaded,
   shareUrl,
   onCopyShare,
   captureElementId,
 }: ControlsPanelProps) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const groupIdRef = useRef(0);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
-  /** URLs currently checked in the "available" pool (not yet in a group). */
-  const [selection, setSelection] = useState<string[]>([]);
-  /** Each group → one 3D job (multi-view when more than one URL). */
-  const [groups, setGroups] = useState<ImageGroup[]>([]);
   const [removeWhiteBg, setRemoveWhiteBg] = useState(true);
-  /** Strip PDP logos / people via OpenAI before 3D (any product type). */
-  const [removeLogosFor3D, setRemoveLogosFor3D] = useState(false);
   const [copied, setCopied] = useState(false);
   const [logoDropActive, setLogoDropActive] = useState(false);
-  /** Full-screen setup for 3D groups; opens automatically when product images load. */
-  const [modelModalOpen, setModelModalOpen] = useState(false);
-  const [modelPortalReady, setModelPortalReady] = useState(false);
-  const [uploadProductUrl, setUploadProductUrl] = useState("");
-
-  const scrapeKey = scrapedImages.join("\u0001");
-
-  const assignedUrls = useMemo(
-    () => new Set(groups.flatMap((g) => g.imageUrls)),
-    [groups],
-  );
-
-  const availableUrls = useMemo(
-    () => scrapedImages.filter((u) => !assignedUrls.has(u)),
-    [scrapedImages, assignedUrls],
-  );
-
-  useEffect(() => {
-    setGroups([]);
-    setSelection([]);
-    if (scrapedImages.length > 0) setModelModalOpen(true);
-    else setModelModalOpen(false);
-  }, [scrapeKey, scrapedImages.length]);
-
-  useEffect(() => {
-    setModelPortalReady(true);
-  }, []);
-
-  const successCount = generatedColorModels.filter((m) => m.status === "SUCCEEDED").length;
+  const [localQuery, setLocalQuery] = useState(libraryQuery);
 
   // Modern browsers handle URLs up to ~100 KB without issues.
   // Logos are compressed to 256 px on upload, so this is only triggered by
@@ -318,36 +229,6 @@ export function ControlsPanel({
 
   const rotateDeg = Math.round((decal.rotation[2] * 180) / Math.PI);
 
-  async function fileToDataUrl(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === "string") resolve(reader.result);
-        else reject(new Error("Could not read file"));
-      };
-      reader.onerror = () => reject(new Error("Could not read file"));
-      reader.readAsDataURL(file);
-    });
-  }
-
-  async function handleProductImagesUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? []).filter((f) => f.type.startsWith("image/"));
-    if (files.length === 0) {
-      e.target.value = "";
-      return;
-    }
-
-    const capped = files.slice(0, 40);
-    try {
-      const dataUrls = await Promise.all(capped.map((f) => fileToDataUrl(f)));
-      onLoadUploadedImages(dataUrls, uploadProductUrl.trim() || undefined);
-    } catch {
-      alert("Could not read one or more uploaded images.");
-    } finally {
-      e.target.value = "";
-    }
-  }
-
   return (
     <aside className="flex h-auto min-h-0 flex-col gap-4 overflow-visible rounded-xl border border-white/10 bg-zinc-900/80 p-4 shadow-xl backdrop-blur-sm sm:gap-5 sm:p-5 md:h-full md:overflow-y-auto">
       <header>
@@ -355,135 +236,119 @@ export function ControlsPanel({
           {productName}
         </h1>
         <p className="mt-1 text-sm text-zinc-400">
-          Paste an iPromo URL to load the product, then add your logo (upload or
-          drag-and-drop). Use a separate GLB per product color.
+          Search and load a prebuilt 3D product, then add your logo (upload or drag-and-drop).
         </p>
       </header>
 
-      {/* ── Product URL loader ── */}
+      {/* ── Product library ── */}
       <div className="flex flex-col gap-2">
         <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-          iPromo Product URL
+          Product library
         </span>
         <div className="flex flex-col gap-2 sm:flex-row">
           <input
-            type="url"
-            value={displayUrl}
-            onChange={(e) => onDisplayUrlChange(e.target.value)}
+            type="search"
+            value={localQuery}
+            onChange={(e) => setLocalQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") onLoadProduct(displayUrl);
+              if (e.key === "Enter") onSearchLibrary(localQuery);
             }}
             className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-200 outline-none ring-blue-500/40 focus:ring-2"
-            placeholder="https://www.ipromo.com/product.html"
+            placeholder="Search by name…"
           />
           <button
             type="button"
-            disabled={isLoadingProduct || !displayUrl.trim()}
-            onClick={() => onLoadProduct(displayUrl)}
+            disabled={isLoadingLibrary}
+            onClick={() => onSearchLibrary(localQuery)}
             className="w-full shrink-0 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
           >
-            {isLoadingProduct ? (
+            {isLoadingLibrary ? (
               <span className="flex items-center gap-1.5">
                 <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
                 </svg>
-                Loading
+                Searching
               </span>
-            ) : "Load"}
+            ) : "Search"}
           </button>
         </div>
-        {productLoadError ? (
-          <p className="text-xs text-red-400">{productLoadError}</p>
-        ) : null}
-        {productLoadedFromScrape && !isLoadingProduct ? (
-          scrapedColors.length > 0 ? (
-            <p className="text-xs text-emerald-400">
-              ✓ Loaded — {scrapedColors.length} color{scrapedColors.length > 1 ? "s" : ""}
-              {scrapedImages.length > 0
-                ? `, ${scrapedImages.length} image${scrapedImages.length > 1 ? "s" : ""}`
-                : ""}{" "}
-              found
-            </p>
-          ) : (
-            <p className="text-xs text-zinc-500">
-              ✓ Loaded — no color variants listed on this page.
-            </p>
-          )
-        ) : null}
+        {libraryError ? <p className="text-xs text-red-400">{libraryError}</p> : null}
       </div>
 
-      {/* ── Direct image upload (optional product URL) ── */}
-      <div className="flex flex-col gap-2 rounded-lg border border-white/10 bg-black/20 p-3">
-        <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-          Upload Product Images
-        </span>
-        <p className="text-xs text-zinc-500">
-          Upload product photos directly and use the same group-based 3D flow.
-        </p>
-        <input
-          type="url"
-          value={uploadProductUrl}
-          onChange={(e) => setUploadProductUrl(e.target.value)}
-          className="min-w-0 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-200 outline-none ring-blue-500/40 focus:ring-2"
-          placeholder="Optional product_url (for auto-save/preload mapping)"
-        />
-        <input
-          type="file"
-          accept="image/*"
-          multiple
-          onChange={(e) => void handleProductImagesUpload(e)}
-          className="w-full text-sm text-zinc-300 file:mr-3 file:rounded-md file:border-0 file:bg-indigo-600 file:px-3 file:py-1.5 file:text-sm file:text-white hover:file:bg-indigo-500"
-        />
-        <p className="text-[11px] text-zinc-500">
-          You can upload up to 40 images per load.
-        </p>
-      </div>
+      {libraryProducts.length > 0 ? (
+        <div className="flex flex-col gap-2 rounded-lg border border-white/10 bg-black/20 p-3">
+          <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+            Results ({libraryProducts.length})
+          </span>
+          <div className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
+            {libraryProducts.map((product) => (
+              <details
+                key={product.product_name}
+                className="rounded-md border border-white/10 bg-black/25 px-2 py-1.5"
+              >
+                <summary className="flex cursor-pointer list-none items-center gap-2 text-xs text-zinc-200">
+                  <div className="h-8 w-8 shrink-0 overflow-hidden rounded bg-black/30">
+                    {product.preview_image_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={product.preview_image_url}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
+                    ) : null}
+                  </div>
+                  <span className="min-w-0 flex-1 truncate">{product.product_name}</span>
+                  <span className="shrink-0 text-[11px] text-zinc-400">
+                    {product.variants.length} color{product.variants.length === 1 ? "" : "s"}
+                  </span>
+                </summary>
 
-      {/* ── 3D: compact summary in sidebar (full UI in modal) ── */}
-      {scrapedImages.length > 0 && (
-        <div className="flex flex-col gap-2 rounded-lg border border-white/10 bg-black/30 p-3">
-          <div className="flex items-center justify-between gap-2">
-            <div className="min-w-0">
-              <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                3D models
-              </span>
-              <p className="mt-0.5 truncate text-xs text-zinc-400">
-                {groups.length} group{groups.length === 1 ? "" : "s"}
-                {isGeneratingModel ? ` · generating ${modelGenerationProgress}%` : ""}
-                {!isGeneratingModel && successCount > 0 ? ` · ${successCount} ready` : ""}
-                {!isGeneratingModel && successCount === 0 && groups.length === 0
-                  ? " · open window to set up"
-                  : ""}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setModelModalOpen(true)}
-              className="shrink-0 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-medium text-white transition hover:bg-indigo-500"
-            >
-              Open setup
-            </button>
+                <div className="mt-2 space-y-1.5 pl-10">
+                  {product.variants.map((v) => {
+                    const active = selectedModelId === v.id;
+                    const item: LibraryItem = {
+                      id: v.id,
+                      name: `${product.product_name} — ${v.label}`,
+                      image_url: v.image_url,
+                    };
+                    return (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onClick={() => onSelectModel(item)}
+                        className={`flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs transition ${
+                          active
+                            ? "border-indigo-500/50 bg-indigo-950/40 text-indigo-100"
+                            : "border-white/10 bg-black/25 text-zinc-200 hover:border-white/20 hover:bg-black/35"
+                        }`}
+                      >
+                        <div className="h-7 w-7 shrink-0 overflow-hidden rounded bg-black/30">
+                          {v.image_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={v.image_url} alt="" className="h-full w-full object-cover" />
+                          ) : null}
+                        </div>
+                        <span className="min-w-0 flex-1 truncate">{v.label}</span>
+                        {active ? (
+                          <span className="shrink-0 text-[11px] text-indigo-200">Loaded</span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              </details>
+            ))}
           </div>
-          {!modelModalOpen && generatedModelUrl && !isGeneratingModel && successCount > 0 && (
-            <select
-              value={selectedModelKey ?? ""}
-              onChange={(e) => onSelectedModelKeyChange(e.target.value || null)}
-              className="w-full rounded-md border border-white/15 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
-            >
-              <option value="">Preview variant…</option>
-              {generatedColorModels
-                .filter((m) => m.status === "SUCCEEDED")
-                .map((m) => (
-                  <option key={m.key} value={m.key}>
-                    {m.colorLabel ?? m.key}
-                    {m.fromPreload ? " (preloaded)" : ""}
-                  </option>
-                ))}
-            </select>
-          )}
+          <button
+            type="button"
+            onClick={() => onSelectModel(null)}
+            className="mt-1 self-start text-[11px] text-zinc-400 hover:underline"
+          >
+            Clear selection
+          </button>
         </div>
-      )}
+      ) : null}
 
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
@@ -658,80 +523,6 @@ export function ControlsPanel({
           Download PDF
         </button>
       </div>
-
-      {modelPortalReady &&
-        modelModalOpen &&
-        scrapedImages.length > 0 &&
-        createPortal(
-          <div
-            role="dialog"
-            aria-modal
-            aria-labelledby="setup-3d-title"
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-3 backdrop-blur-sm sm:p-5"
-            onClick={() => setModelModalOpen(false)}
-          >
-            <div
-              className="flex max-h-[min(92vh,880px)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/10 bg-zinc-900 shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex shrink-0 items-start justify-between gap-3 border-b border-white/10 px-4 py-3 sm:px-5">
-                <div className="min-w-0">
-                  <h2 id="setup-3d-title" className="truncate text-base font-semibold text-white">
-                    Build 3D models
-                  </h2>
-                  <p className="mt-0.5 truncate text-xs text-zinc-500">{productName}</p>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  {generatedModelUrl && !isGeneratingModel ? (
-                    <button
-                      type="button"
-                      onClick={onResetModel}
-                      className="rounded-md px-2 py-1 text-xs text-zinc-400 hover:bg-white/10 hover:text-red-300"
-                    >
-                      Reset
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="rounded-lg p-2 text-zinc-400 transition hover:bg-white/10 hover:text-white"
-                    aria-label="Close"
-                    onClick={() => setModelModalOpen(false)}
-                  >
-                    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-              <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-5 pt-3 sm:px-5">
-                <ModelGroupsSetupSection
-                  scrapedImages={scrapedImages}
-                  scrapedColors={scrapedColors}
-                  groups={groups}
-                  setGroups={setGroups}
-                  selection={selection}
-                  setSelection={setSelection}
-                  groupIdRef={groupIdRef}
-                  availableUrls={availableUrls}
-                  removeLogosFor3D={removeLogosFor3D}
-                  setRemoveLogosFor3D={setRemoveLogosFor3D}
-                  isGeneratingModel={isGeneratingModel}
-                  modelGenerationProgress={modelGenerationProgress}
-                  modelGenerationError={modelGenerationError}
-                  generatedColorModels={generatedColorModels}
-                  selectedModelKey={selectedModelKey}
-                  onSelectedModelKeyChange={onSelectedModelKeyChange}
-                  onGenerateModelsBatch={onGenerateModelsBatch}
-                  isStoringPreloaded={isStoringPreloaded}
-                  storePreloadedError={storePreloadedError}
-                  onStorePreloaded={onStorePreloaded}
-                  setLightboxSrc={setLightboxSrc}
-                />
-              </div>
-            </div>
-          </div>,
-          document.body,
-        )}
 
       {/* ── Lightbox overlay ── */}
       {lightboxSrc && (

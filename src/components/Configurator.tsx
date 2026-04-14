@@ -38,33 +38,20 @@ export default function Configurator({ shareId }: { shareId?: string }) {
     setLogoDataUrl,
     decal,
     setDecal,
-    displayUrl,
-    setDisplayUrl,
     isLogoPlacementMode,
     setIsLogoPlacementMode,
-    scrapedColors,
-    productLoadedFromScrape,
-    scrapedImages,
-    isLoadingProduct,
-    productLoadError,
-    loadProductFromUrl,
-    loadProductFromUploads,
-    generatedModelUrl,
-    generatedColorModels,
-    selectedModelKey,
-    setSelectedModelKey,
-    isGeneratingModel,
-    modelGenerationProgress,
-    modelGenerationError,
-    generateModelsBatch,
-    resetGeneratedModel,
-    isStoringPreloaded,
-    storePreloadedError,
-    storeGeneratedModels,
+    libraryQuery,
+    libraryProducts,
+    isLoadingLibrary,
+    libraryError,
+    searchLibrary,
+    selectedModelId,
+    selectModel,
+    modelUrl,
     shareUrl,
     copyShareLink,
     loadFromShareId,
-    syncTaskIdFromUrl,
+    syncModelIdFromUrl,
   } = useConfiguratorState();
 
   // If this page is /s/[id], hydrate state from Supabase once.
@@ -76,8 +63,8 @@ export default function Configurator({ shareId }: { shareId?: string }) {
 
   useEffect(() => {
     if (shareId) return;
-    syncTaskIdFromUrl(searchParams.get("taskId"));
-  }, [searchParams, shareId, syncTaskIdFromUrl]);
+    syncModelIdFromUrl(searchParams.get("modelId"));
+  }, [searchParams, shareId, syncModelIdFromUrl]);
 
   const onDecalChange = useCallback((next: DecalConfig) => {
     setDecal(next);
@@ -89,33 +76,19 @@ export default function Configurator({ shareId }: { shareId?: string }) {
         <div className="w-full shrink-0 md:w-[380px]">
           <ControlsPanel
             productName={productName}
-            displayUrl={displayUrl}
-            onDisplayUrlChange={setDisplayUrl}
-            onLoadProduct={loadProductFromUrl}
-            onLoadUploadedImages={loadProductFromUploads}
-            isLoadingProduct={isLoadingProduct}
-            productLoadError={productLoadError}
-            scrapedColors={scrapedColors}
-            productLoadedFromScrape={productLoadedFromScrape}
-            scrapedImages={scrapedImages}
+            libraryQuery={libraryQuery}
+            libraryProducts={libraryProducts}
+            isLoadingLibrary={isLoadingLibrary}
+            libraryError={libraryError}
+            onSearchLibrary={searchLibrary}
+            selectedModelId={selectedModelId}
+            onSelectModel={selectModel}
             logoDataUrl={logoDataUrl}
             onLogoDataUrlChange={setLogoDataUrl}
             isLogoPlacementMode={isLogoPlacementMode}
             onLogoPlacementModeChange={setIsLogoPlacementMode}
             decal={decal}
             onDecalChange={onDecalChange}
-            generatedModelUrl={generatedModelUrl}
-            generatedColorModels={generatedColorModels}
-            selectedModelKey={selectedModelKey}
-            onSelectedModelKeyChange={setSelectedModelKey}
-            isGeneratingModel={isGeneratingModel}
-            modelGenerationProgress={modelGenerationProgress}
-            modelGenerationError={modelGenerationError}
-            onGenerateModelsBatch={generateModelsBatch}
-            onResetModel={resetGeneratedModel}
-            isStoringPreloaded={isStoringPreloaded}
-            storePreloadedError={storePreloadedError}
-            onStorePreloaded={storeGeneratedModels}
             shareUrl={shareUrl}
             onCopyShare={copyShareLink}
             captureElementId={CAPTURE_ID}
@@ -129,9 +102,9 @@ export default function Configurator({ shareId }: { shareId?: string }) {
           decal={decal}
           onDecalChange={isSharedView ? undefined : onDecalChange}
           isLogoPlacementMode={isLogoPlacementMode}
-          modelUrl={generatedModelUrl ?? undefined}
-          isGeneratingModel={isGeneratingModel}
-          modelGenerationProgress={modelGenerationProgress}
+          modelUrl={modelUrl ?? undefined}
+          isGeneratingModel={false}
+          modelGenerationProgress={0}
         />
       </div>
     </main>

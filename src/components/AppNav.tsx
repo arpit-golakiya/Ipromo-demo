@@ -24,11 +24,8 @@ export function AppNav() {
           <Link href="/" className={itemClass(pathname === "/")}>
             Configurator
           </Link>
-          <Link
-            href="/saved-models"
-            className={itemClass(pathname?.startsWith("/saved-models") ?? false)}
-          >
-            Saved Models
+          <Link href="/models" className={itemClass(pathname?.startsWith("/models") ?? false)}>
+            All Models
           </Link>
         </div>
       </nav>

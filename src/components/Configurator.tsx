@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ControlsPanel } from "@/components/ControlsPanel";
 import { useConfiguratorState } from "@/hooks/useConfiguratorState";
 import type { DecalConfig } from "@/types/configurator";
@@ -30,6 +30,7 @@ const CAPTURE_ID = "configurator-viewer";
  */
 export default function Configurator({ shareId }: { shareId?: string }) {
   const isSharedView = Boolean(shareId);
+  const [modelUrl, setModelUrl] = useState<string | null>(null);
   const {
     productName,
     logoDataUrl,
@@ -50,6 +51,30 @@ export default function Configurator({ shareId }: { shareId?: string }) {
     if (!shareId) return;
     void loadFromShareId(shareId);
   }, [loadFromShareId, shareId]);
+
+  // Load the active 3D model from Supabase (`one_model_data`).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/model", { method: "GET" });
+        const data = (await res.json().catch(() => ({}))) as { modelUrl?: string };
+        if (!cancelled && res.ok && typeof data.modelUrl === "string" && data.modelUrl.trim()) {
+          setModelUrl(data.modelUrl.trim());
+        }
+      } catch {
+        // ignore; viewer will fallback to built-in default model
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const effectiveModelUrl =
+    modelUrl && /^https?:\/\//i.test(modelUrl)
+      ? `/api/model/proxy?src=${encodeURIComponent(modelUrl)}`
+      : modelUrl;
 
   const onDecalChange = useCallback((next: DecalConfig) => {
     setDecal(next);
@@ -76,6 +101,7 @@ export default function Configurator({ shareId }: { shareId?: string }) {
       <div className="flex min-h-0 w-full flex-col max-md:h-[min(52dvh,580px)] max-md:min-h-[280px] max-md:flex-shrink-0 md:min-h-[min(70vh,720px)] md:flex-1">
         <ModelViewer
           captureId={CAPTURE_ID}
+          modelUrl={effectiveModelUrl ?? undefined}
           logoDataUrl={logoDataUrl}
           decal={decal}
           onDecalChange={isSharedView ? undefined : onDecalChange}

@@ -23,6 +23,9 @@ export function AppNav() {
           <Link href="/" className={itemClass(pathname === "/")}>
             Configurator
           </Link>
+          <Link href="/feedback" className={itemClass(pathname === "/feedback")}>
+            Feedback
+          </Link>
         </div>
       </nav>
     </header>

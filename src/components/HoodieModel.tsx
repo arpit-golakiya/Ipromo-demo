@@ -140,6 +140,12 @@ export type HoodieModelProps = {
   onDecalChange?: (next: DecalConfig) => void;
   orbitRef?: RefObject<OrbitControlsImpl | null>;
   isLogoPlacementMode?: boolean;
+  /**
+   * If true, allow dragging the logo without entering a special "placement mode".
+   * We only start dragging when pointer-down happens near the current decal area,
+   * so normal orbit/rotate remains usable when clicking elsewhere on the model.
+   */
+  autoLogoDrag?: boolean;
   modelUrl?: string;
 };
 
@@ -149,6 +155,7 @@ export function HoodieModel({
   onDecalChange,
   orbitRef,
   isLogoPlacementMode,
+  autoLogoDrag = true,
   modelUrl,
 }: HoodieModelProps) {
   const effectiveModelUrl = modelUrl ?? HOODIE_MODEL_PATH;
@@ -216,6 +223,12 @@ export function HoodieModel({
       scaleY,
     };
   }, [decal, decalGeoBBox, decalBBoxSize, logoAspect]);
+
+  const decalPickRadius = useMemo(() => {
+    // Use the rendered decal size as a heuristic pick radius.
+    const r = 0.75 * Math.max(decalLocal.scaleX, decalLocal.scaleY, 0);
+    return Math.max(0.02, r);
+  }, [decalLocal.scaleX, decalLocal.scaleY]);
 
   const localToNorm = useCallback(
     (local: THREE.Vector3): [number, number, number] => {
@@ -305,8 +318,28 @@ export function HoodieModel({
 
   const onDecalMeshPointerDown = useCallback(
     (e: ThreeEvent<PointerEvent>) => {
-      if (!logoMap || !onDecalChange || !isLogoPlacementMode) return;
-      e.stopPropagation();
+      if (!logoMap || !onDecalChange) return;
+
+      const mesh = decalMeshRef.current;
+      if (!mesh) return;
+
+      const canDragEverywhere = Boolean(isLogoPlacementMode);
+      if (!canDragEverywhere && !autoLogoDrag) return;
+
+      if (!canDragEverywhere) {
+        const localPoint = e.point.clone();
+        mesh.worldToLocal(localPoint);
+        const decalPos = new THREE.Vector3(
+          decalLocal.position[0],
+          decalLocal.position[1],
+          decalLocal.position[2],
+        );
+        if (localPoint.distanceTo(decalPos) > decalPickRadius) {
+          return; // allow orbit controls to handle the drag
+        }
+      }
+
+      e.stopPropagation(); // only stop propagation when we actually start dragging the logo
       draggingLogo.current = true;
       if (orbitRef?.current) orbitRef.current.enabled = false;
       logoPointerId.current = e.pointerId;
@@ -315,6 +348,9 @@ export function HoodieModel({
     },
     [
       gl.domElement,
+      autoLogoDrag,
+      decalLocal.position,
+      decalPickRadius,
       isLogoPlacementMode,
       logoMap,
       onDecalChange,

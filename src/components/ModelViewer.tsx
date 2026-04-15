@@ -1,11 +1,25 @@
 "use client";
 
-import { OrbitControls, Stage } from "@react-three/drei";
+import { Html, OrbitControls, Stage } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { Suspense, useRef, type RefObject } from "react";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { HoodieModel, type HoodieModelProps } from "@/components/HoodieModel";
+
+function ModelLoadFallback({ label }: { label?: string }) {
+  return (
+    <Html center>
+      <div className="pointer-events-none flex min-w-[220px] flex-col items-center gap-3 rounded-xl border border-white/10 bg-black/70 px-5 py-4 text-center text-white backdrop-blur-sm">
+        <svg className="h-7 w-7 animate-spin text-blue-400" viewBox="0 0 24 24" fill="none">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+        </svg>
+        <p className="text-sm font-medium">{label ?? "Loading 3D model…"}</p>
+      </div>
+    </Html>
+  );
+}
 
 /**
  * Lighting / framing aligned with `GLB_DEMO/frontend/src/Model.jsx` (Stage + city + low ambient).
@@ -14,27 +28,35 @@ import { HoodieModel, type HoodieModelProps } from "@/components/HoodieModel";
 function Scene({
   orbitRef,
   isLogoPlacementMode,
+  allowDefaultModel = true,
   ...hoodie
 }: HoodieModelProps & {
   orbitRef: RefObject<OrbitControlsImpl | null>;
   isLogoPlacementMode?: boolean;
+  allowDefaultModel?: boolean;
 }) {
+  const shouldRenderModel = allowDefaultModel || Boolean(hoodie.modelUrl);
+
   return (
     <>
       <ambientLight intensity={0.25} />
-      <Suspense fallback={null}>
-        <Stage
-          intensity={0.5}
-          environment="city"
-          adjustCamera={1.15}
-          shadows={false}
-        >
-          <HoodieModel
-            {...hoodie}
-            orbitRef={orbitRef}
-            isLogoPlacementMode={isLogoPlacementMode}
-          />
-        </Stage>
+      <Suspense fallback={<ModelLoadFallback />}>
+        {shouldRenderModel ? (
+          <Stage
+            intensity={0.5}
+            environment="city"
+            adjustCamera={1.15}
+            shadows={false}
+          >
+            <HoodieModel
+              {...hoodie}
+              orbitRef={orbitRef}
+              isLogoPlacementMode={isLogoPlacementMode}
+            />
+          </Stage>
+        ) : (
+          <ModelLoadFallback label="Loading shared product…" />
+        )}
       </Suspense>
       <OrbitControls
         ref={orbitRef}
@@ -53,6 +75,8 @@ export type ModelViewerProps = HoodieModelProps & {
   /** DOM id for PDF / html2canvas capture wrapper */
   captureId?: string;
   isLogoPlacementMode?: boolean;
+  /** If false, don't render the built-in default model while waiting for a real model URL. */
+  allowDefaultModel?: boolean;
   /** When generating a new model, show a loading overlay over the canvas. */
   isGeneratingModel?: boolean;
   modelGenerationProgress?: number;
@@ -64,6 +88,7 @@ export type ModelViewerProps = HoodieModelProps & {
 export function ModelViewer({
   captureId = "configurator-viewer",
   isLogoPlacementMode,
+  allowDefaultModel = true,
   isGeneratingModel,
   modelGenerationProgress,
   ...hoodie
@@ -98,6 +123,7 @@ export function ModelViewer({
           {...hoodie}
           orbitRef={orbitRef}
           isLogoPlacementMode={isLogoPlacementMode}
+          allowDefaultModel={allowDefaultModel}
         />
       </Canvas>
 
@@ -122,10 +148,8 @@ export function ModelViewer({
       )}
 
       <p className="pointer-events-none absolute bottom-3 left-3 max-w-[min(100%,20rem)] text-xs leading-snug text-zinc-500">
-        {isLogoPlacementMode ? (
-          <span className="text-amber-300">
-            Drag on the model to place your logo
-          </span>
+        {hoodie.logoDataUrl && hoodie.onDecalChange ? (
+          <span className="text-amber-300">Drag the logo area to reposition · Otherwise drag to rotate</span>
         ) : (
           <>Drag to rotate · Scroll to zoom</>
         )}

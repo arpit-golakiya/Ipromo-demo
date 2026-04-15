@@ -10,8 +10,7 @@ export function AppNav() {
   if (pathname?.startsWith("/s/")) return null;
 
   const itemClass = (active: boolean) =>
-    `rounded-md px-3 py-1.5 text-sm transition ${
-      active ? "bg-indigo-600 text-white" : "text-zinc-300 hover:bg-white/10 hover:text-white"
+    `rounded-md px-3 py-1.5 text-sm transition ${active ? "bg-indigo-600 text-white" : "text-zinc-300 hover:bg-white/10 hover:text-white"
     }`;
 
   return (
@@ -23,9 +22,6 @@ export function AppNav() {
         <div className="flex items-center gap-1">
           <Link href="/" className={itemClass(pathname === "/")}>
             Configurator
-          </Link>
-          <Link href="/models" className={itemClass(pathname?.startsWith("/models") ?? false)}>
-            All Models
           </Link>
         </div>
       </nav>

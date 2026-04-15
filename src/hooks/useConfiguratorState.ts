@@ -3,31 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_DECAL, type DecalConfig } from "@/types/configurator";
 
-const DEFAULT_PRODUCT_NAME = "Select a product";
-
-export type LibraryItem = {
-  id: string;
-  name: string;
-  image_url: string | null;
-};
-
-export type LibraryProduct = {
-  product_name: string;
-  preview_image_url: string | null;
-  variants: Array<{
-    id: string;
-    label: string;
-    image_url: string | null;
-  }>;
-};
-
-function parseModelId(raw: string | null): string | null {
-  if (raw == null || raw === "") return null;
-  const id = raw.trim();
-  if (id.length < 1 || id.length > 200) return null;
-  if (!/^[a-zA-Z0-9_-]+$/.test(id)) return null;
-  return id;
-}
+const DEFAULT_PRODUCT_NAME = "Customize product with your logo";
 
 function parseColor(param: string | null): string | null {
   if (!param) return null;
@@ -72,18 +48,9 @@ export function useConfiguratorState() {
 
   const [productName, setProductName] = useState(DEFAULT_PRODUCT_NAME);
 
-  const [libraryQuery, setLibraryQuery] = useState("");
-  const [libraryProducts, setLibraryProducts] = useState<LibraryProduct[]>([]);
-  const [isLoadingLibrary, setIsLoadingLibrary] = useState(false);
-  const [libraryError, setLibraryError] = useState<string | null>(null);
-
-  const [selectedModelId, setSelectedModelId] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    return parseModelId(new URLSearchParams(window.location.search).get("modelId"));
-  });
-
   const hydratedFromUrl = useRef(false);
   const hydratedFromShare = useRef(false);
+  const [isHydratingFromShare, setIsHydratingFromShare] = useState(false);
 
   const setLogoDataUrlWithReset = useCallback((url: string | null) => {
     setLogoDataUrl(url);
@@ -103,9 +70,6 @@ export function useConfiguratorState() {
     const c = parseColor(sp.get("c"));
     if (c) setColor(c);
 
-    const mid = parseModelId(sp.get("modelId"));
-    if (mid) setSelectedModelId(mid);
-
     const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
     const logo = hashParams.get("logo") ?? sp.get("logo");
     if (logo && logo.startsWith("data:image")) setLogoDataUrl(logo);
@@ -115,6 +79,7 @@ export function useConfiguratorState() {
   const loadFromShareId = useCallback(async (shareId: string) => {
     if (!shareId || hydratedFromShare.current) return;
     hydratedFromShare.current = true;
+    setIsHydratingFromShare(true);
     try {
       const res = await fetch(`/api/share?id=${encodeURIComponent(shareId)}`);
       const data: {
@@ -123,7 +88,7 @@ export function useConfiguratorState() {
           productName: string;
           color: string;
           decal: DecalConfig;
-          modelId: string | null;
+          modelId?: string | null;
           logoDataUrl: string | null;
         };
         error?: string;
@@ -134,10 +99,11 @@ export function useConfiguratorState() {
       setProductName(p.productName || DEFAULT_PRODUCT_NAME);
       if (p.color) setColor(p.color);
       if (p.decal) setDecal(p.decal);
-      setSelectedModelId(parseModelId(p.modelId));
       if (p.logoDataUrl && p.logoDataUrl.startsWith("data:image")) setLogoDataUrl(p.logoDataUrl);
     } catch {
       // ignore
+    } finally {
+      setIsHydratingFromShare(false);
     }
   }, []);
 
@@ -151,9 +117,8 @@ export function useConfiguratorState() {
     params.set("rx", String(decal.rotation[0]));
     params.set("ry", String(decal.rotation[1]));
     params.set("rz", String(decal.rotation[2]));
-    if (selectedModelId) params.set("modelId", selectedModelId);
     return params.toString();
-  }, [color, decal, selectedModelId]);
+  }, [color, decal]);
 
   const buildShareHref = useCallback(() => {
     const q = buildQueryString();
@@ -170,80 +135,6 @@ export function useConfiguratorState() {
     return buildShareHref();
   }, [buildShareHref]);
 
-  const modelUrl = selectedModelId
-    ? `/api/library/model?id=${encodeURIComponent(selectedModelId)}`
-    : null;
-
-  const syncModelIdFromUrl = useCallback((rawModelId: string | null) => {
-    setSelectedModelId(parseModelId(rawModelId));
-  }, []);
-
-  const searchLibrary = useCallback(async (q: string) => {
-    setLibraryQuery(q);
-    setIsLoadingLibrary(true);
-    setLibraryError(null);
-    try {
-      const res = await fetch(`/api/library?q=${encodeURIComponent(q)}&limit=80`);
-      const data: { products?: LibraryProduct[]; items?: LibraryItem[]; error?: string } =
-        await res.json();
-      if (!res.ok) {
-        setLibraryError(data.error ?? "Failed to load library");
-        setLibraryProducts([]);
-        return;
-      }
-
-      if (Array.isArray(data.products)) {
-        setLibraryProducts(data.products);
-        return;
-      }
-
-      // Back-compat: flat list -> group by `name` (product_name) with each item as a single variant.
-      if (Array.isArray(data.items)) {
-        const byName = new Map<string, LibraryProduct>();
-        for (const item of data.items) {
-          const name = String(item.name ?? "").trim();
-          if (!name) continue;
-          const group =
-            byName.get(name) ??
-            (() => {
-              const g: LibraryProduct = {
-                product_name: name,
-                preview_image_url: item.image_url ?? null,
-                variants: [],
-              };
-              byName.set(name, g);
-              return g;
-            })();
-          group.variants.push({
-            id: item.id,
-            label: "Variant",
-            image_url: item.image_url ?? null,
-          });
-        }
-        setLibraryProducts(Array.from(byName.values()));
-        return;
-      }
-
-      setLibraryError(data.error ?? "Failed to load library");
-      setLibraryProducts([]);
-    } catch {
-      setLibraryError("Failed to load library");
-      setLibraryProducts([]);
-    } finally {
-      setIsLoadingLibrary(false);
-    }
-  }, []);
-
-  const selectModel = useCallback((item: LibraryItem | null) => {
-    if (!item) {
-      setSelectedModelId(null);
-      setProductName(DEFAULT_PRODUCT_NAME);
-      return;
-    }
-    setSelectedModelId(item.id);
-    setProductName(item.name || DEFAULT_PRODUCT_NAME);
-  }, []);
-
   const copyShareLink = useCallback(async () => {
     let full = buildShareHref();
     try {
@@ -255,7 +146,7 @@ export function useConfiguratorState() {
           productName,
           color,
           decal,
-          modelId: selectedModelId,
+          modelId: null,
           logoDataUrl,
         }),
       });
@@ -269,7 +160,7 @@ export function useConfiguratorState() {
     } catch {
       window.prompt("Copy this link:", full);
     }
-  }, [buildShareHref, color, decal, logoDataUrl, productName, selectedModelId]);
+  }, [buildShareHref, color, decal, logoDataUrl, productName]);
 
   return {
     productName,
@@ -279,19 +170,11 @@ export function useConfiguratorState() {
     setDecal,
     isLogoPlacementMode,
     setIsLogoPlacementMode,
-    libraryQuery,
-    libraryProducts,
-    isLoadingLibrary,
-    libraryError,
-    searchLibrary,
-    selectedModelId,
-    selectModel,
-    modelUrl,
+    isHydratingFromShare,
     shareUrl,
     copyShareLink,
     buildQueryString,
     loadFromShareId,
-    syncModelIdFromUrl,
   };
 }
 

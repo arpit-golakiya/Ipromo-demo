@@ -3,7 +3,6 @@
 import { useRef, useState } from "react";
 import type { DecalConfig } from "@/types/configurator";
 import { downloadConfiguratorPdf } from "@/lib/pdfExport";
-import type { LibraryItem, LibraryProduct } from "@/hooks/useConfiguratorState";
 
 const LOGO_MAX_PX = 256;
 
@@ -94,13 +93,6 @@ async function removeWhiteBackground(dataUrl: string, tolerance = 40): Promise<s
 
 export type ControlsPanelProps = {
   productName: string;
-  libraryQuery: string;
-  libraryProducts: LibraryProduct[];
-  isLoadingLibrary: boolean;
-  libraryError: string | null;
-  onSearchLibrary: (q: string) => void;
-  selectedModelId: string | null;
-  onSelectModel: (item: LibraryItem | null) => void;
   logoDataUrl: string | null;
   onLogoDataUrlChange: (dataUrl: string | null) => void;
   isLogoPlacementMode: boolean;
@@ -117,17 +109,8 @@ export type ControlsPanelProps = {
  */
 export function ControlsPanel({
   productName,
-  libraryQuery,
-  libraryProducts,
-  isLoadingLibrary,
-  libraryError,
-  onSearchLibrary,
-  selectedModelId,
-  onSelectModel,
   logoDataUrl,
   onLogoDataUrlChange,
-  isLogoPlacementMode,
-  onLogoPlacementModeChange,
   decal,
   onDecalChange,
   shareUrl,
@@ -139,7 +122,6 @@ export function ControlsPanel({
   const [removeWhiteBg, setRemoveWhiteBg] = useState(true);
   const [copied, setCopied] = useState(false);
   const [logoDropActive, setLogoDropActive] = useState(false);
-  const [localQuery, setLocalQuery] = useState(libraryQuery);
 
   // Modern browsers handle URLs up to ~100 KB without issues.
   // Logos are compressed to 256 px on upload, so this is only triggered by
@@ -236,119 +218,9 @@ export function ControlsPanel({
           {productName}
         </h1>
         <p className="mt-1 text-sm text-zinc-400">
-          Search and load a prebuilt 3D product, then add your logo (upload or drag-and-drop).
+          Add your logo (upload or drag-and-drop), then adjust placement and export.
         </p>
       </header>
-
-      {/* ── Product library ── */}
-      <div className="flex flex-col gap-2">
-        <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-          Product library
-        </span>
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <input
-            type="search"
-            value={localQuery}
-            onChange={(e) => setLocalQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") onSearchLibrary(localQuery);
-            }}
-            className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-200 outline-none ring-blue-500/40 focus:ring-2"
-            placeholder="Search by name…"
-          />
-          <button
-            type="button"
-            disabled={isLoadingLibrary}
-            onClick={() => onSearchLibrary(localQuery)}
-            className="w-full shrink-0 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-          >
-            {isLoadingLibrary ? (
-              <span className="flex items-center gap-1.5">
-                <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                </svg>
-                Searching
-              </span>
-            ) : "Search"}
-          </button>
-        </div>
-        {libraryError ? <p className="text-xs text-red-400">{libraryError}</p> : null}
-      </div>
-
-      {libraryProducts.length > 0 ? (
-        <div className="flex flex-col gap-2 rounded-lg border border-white/10 bg-black/20 p-3">
-          <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-            Results ({libraryProducts.length})
-          </span>
-          <div className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
-            {libraryProducts.map((product) => (
-              <details
-                key={product.product_name}
-                className="rounded-md border border-white/10 bg-black/25 px-2 py-1.5"
-              >
-                <summary className="flex cursor-pointer list-none items-center gap-2 text-xs text-zinc-200">
-                  <div className="h-8 w-8 shrink-0 overflow-hidden rounded bg-black/30">
-                    {product.preview_image_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={product.preview_image_url}
-                        alt=""
-                        className="h-full w-full object-cover"
-                      />
-                    ) : null}
-                  </div>
-                  <span className="min-w-0 flex-1 truncate">{product.product_name}</span>
-                  <span className="shrink-0 text-[11px] text-zinc-400">
-                    {product.variants.length} color{product.variants.length === 1 ? "" : "s"}
-                  </span>
-                </summary>
-
-                <div className="mt-2 space-y-1.5 pl-10">
-                  {product.variants.map((v) => {
-                    const active = selectedModelId === v.id;
-                    const item: LibraryItem = {
-                      id: v.id,
-                      name: `${product.product_name} — ${v.label}`,
-                      image_url: v.image_url,
-                    };
-                    return (
-                      <button
-                        key={v.id}
-                        type="button"
-                        onClick={() => onSelectModel(item)}
-                        className={`flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs transition ${
-                          active
-                            ? "border-indigo-500/50 bg-indigo-950/40 text-indigo-100"
-                            : "border-white/10 bg-black/25 text-zinc-200 hover:border-white/20 hover:bg-black/35"
-                        }`}
-                      >
-                        <div className="h-7 w-7 shrink-0 overflow-hidden rounded bg-black/30">
-                          {v.image_url ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={v.image_url} alt="" className="h-full w-full object-cover" />
-                          ) : null}
-                        </div>
-                        <span className="min-w-0 flex-1 truncate">{v.label}</span>
-                        {active ? (
-                          <span className="shrink-0 text-[11px] text-indigo-200">Loaded</span>
-                        ) : null}
-                      </button>
-                    );
-                  })}
-                </div>
-              </details>
-            ))}
-          </div>
-          <button
-            type="button"
-            onClick={() => onSelectModel(null)}
-            className="mt-1 self-start text-[11px] text-zinc-400 hover:underline"
-          >
-            Clear selection
-          </button>
-        </div>
-      ) : null}
 
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
@@ -417,17 +289,9 @@ export function ControlsPanel({
             </div>
 
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => onLogoPlacementModeChange(!isLogoPlacementMode)}
-                className={`flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition ${
-                  isLogoPlacementMode
-                    ? "border-amber-400/60 bg-amber-400/15 text-amber-300 hover:bg-amber-400/25"
-                    : "border-white/15 bg-white/5 text-zinc-300 hover:bg-white/10"
-                }`}
-              >
-                {isLogoPlacementMode ? "✋ Drag logo to place — click to exit" : "🖱 Drag logo on model"}
-              </button>
+              <p className="flex-1 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-medium text-zinc-300">
+                Drag the logo area on the model to reposition
+              </p>
               <button
                 type="button"
                 onClick={clearLogo}

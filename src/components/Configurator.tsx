@@ -2,7 +2,6 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect } from "react";
-import { useSearchParams } from "next/navigation";
 import { ControlsPanel } from "@/components/ControlsPanel";
 import { useConfiguratorState } from "@/hooks/useConfiguratorState";
 import type { DecalConfig } from "@/types/configurator";
@@ -31,7 +30,6 @@ const CAPTURE_ID = "configurator-viewer";
  */
 export default function Configurator({ shareId }: { shareId?: string }) {
   const isSharedView = Boolean(shareId);
-  const searchParams = useSearchParams();
   const {
     productName,
     logoDataUrl,
@@ -40,18 +38,10 @@ export default function Configurator({ shareId }: { shareId?: string }) {
     setDecal,
     isLogoPlacementMode,
     setIsLogoPlacementMode,
-    libraryQuery,
-    libraryProducts,
-    isLoadingLibrary,
-    libraryError,
-    searchLibrary,
-    selectedModelId,
-    selectModel,
-    modelUrl,
+    isHydratingFromShare,
     shareUrl,
     copyShareLink,
     loadFromShareId,
-    syncModelIdFromUrl,
   } = useConfiguratorState();
 
   // If this page is /s/[id], hydrate state from Supabase once.
@@ -60,11 +50,6 @@ export default function Configurator({ shareId }: { shareId?: string }) {
     if (!shareId) return;
     void loadFromShareId(shareId);
   }, [loadFromShareId, shareId]);
-
-  useEffect(() => {
-    if (shareId) return;
-    syncModelIdFromUrl(searchParams.get("modelId"));
-  }, [searchParams, shareId, syncModelIdFromUrl]);
 
   const onDecalChange = useCallback((next: DecalConfig) => {
     setDecal(next);
@@ -76,13 +61,6 @@ export default function Configurator({ shareId }: { shareId?: string }) {
         <div className="w-full shrink-0 md:w-[380px]">
           <ControlsPanel
             productName={productName}
-            libraryQuery={libraryQuery}
-            libraryProducts={libraryProducts}
-            isLoadingLibrary={isLoadingLibrary}
-            libraryError={libraryError}
-            onSearchLibrary={searchLibrary}
-            selectedModelId={selectedModelId}
-            onSelectModel={selectModel}
             logoDataUrl={logoDataUrl}
             onLogoDataUrlChange={setLogoDataUrl}
             isLogoPlacementMode={isLogoPlacementMode}
@@ -102,7 +80,7 @@ export default function Configurator({ shareId }: { shareId?: string }) {
           decal={decal}
           onDecalChange={isSharedView ? undefined : onDecalChange}
           isLogoPlacementMode={isLogoPlacementMode}
-          modelUrl={modelUrl ?? undefined}
+          allowDefaultModel={!isSharedView || !isHydratingFromShare}
           isGeneratingModel={false}
           modelGenerationProgress={0}
         />

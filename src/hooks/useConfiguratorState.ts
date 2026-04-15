@@ -84,6 +84,7 @@ export function useConfiguratorState() {
 
   const hydratedFromUrl = useRef(false);
   const hydratedFromShare = useRef(false);
+  const [isHydratingFromShare, setIsHydratingFromShare] = useState(false);
 
   const setLogoDataUrlWithReset = useCallback((url: string | null) => {
     setLogoDataUrl(url);
@@ -115,6 +116,7 @@ export function useConfiguratorState() {
   const loadFromShareId = useCallback(async (shareId: string) => {
     if (!shareId || hydratedFromShare.current) return;
     hydratedFromShare.current = true;
+    setIsHydratingFromShare(true);
     try {
       const res = await fetch(`/api/share?id=${encodeURIComponent(shareId)}`);
       const data: {
@@ -138,6 +140,8 @@ export function useConfiguratorState() {
       if (p.logoDataUrl && p.logoDataUrl.startsWith("data:image")) setLogoDataUrl(p.logoDataUrl);
     } catch {
       // ignore
+    } finally {
+      setIsHydratingFromShare(false);
     }
   }, []);
 
@@ -287,6 +291,7 @@ export function useConfiguratorState() {
     selectedModelId,
     selectModel,
     modelUrl,
+    isHydratingFromShare,
     shareUrl,
     copyShareLink,
     buildQueryString,

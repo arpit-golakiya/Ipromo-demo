@@ -48,6 +48,7 @@ export default function Configurator({ shareId }: { shareId?: string }) {
     selectedModelId,
     selectModel,
     modelUrl,
+    isHydratingFromShare,
     shareUrl,
     copyShareLink,
     loadFromShareId,
@@ -102,6 +103,7 @@ export default function Configurator({ shareId }: { shareId?: string }) {
           decal={decal}
           onDecalChange={isSharedView ? undefined : onDecalChange}
           isLogoPlacementMode={isLogoPlacementMode}
+          allowDefaultModel={!isSharedView || !isHydratingFromShare}
           modelUrl={modelUrl ?? undefined}
           isGeneratingModel={false}
           modelGenerationProgress={0}

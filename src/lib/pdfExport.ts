@@ -128,7 +128,7 @@ export async function downloadConfiguratorPdf(
 
   pdf.setFontSize(9);
   pdf.setTextColor(100);
-  pdf.text("Custom 3D Preview — Configured via 3D Swag", margin, cursorY + 13);
+  pdf.text("Custom 3D Preview — Configured via 3D Swag by iPromo", margin, cursorY + 13);
   cursorY += 20;
 
   // ── Mockup image (full usable width, maintain aspect ratio) ───────────────

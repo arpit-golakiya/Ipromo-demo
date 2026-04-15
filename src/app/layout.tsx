@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "iPromo — 3D Swag",
+  title: "iPromo — 3D Swag by iPromo",
   description: "3D product configurator — color, logo, share & PDF",
 };
 

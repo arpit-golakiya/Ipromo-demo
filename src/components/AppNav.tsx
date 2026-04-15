@@ -17,7 +17,7 @@ export function AppNav() {
     <header className="sticky top-0 z-40 border-b border-white/10 bg-zinc-950/90 backdrop-blur">
       <nav className="mx-auto flex h-14 w-full max-w-[1600px] items-center justify-between px-3 sm:px-4 md:px-6">
         <Link href="/" className="text-sm font-semibold tracking-tight text-white">
-          3D Swag
+          3D Swag by iPromo
         </Link>
         <div className="flex items-center gap-1">
           <Link href="/" className={itemClass(pathname === "/")}>

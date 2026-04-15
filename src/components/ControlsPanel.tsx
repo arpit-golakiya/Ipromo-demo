@@ -93,6 +93,18 @@ async function removeWhiteBackground(dataUrl: string, tolerance = 40): Promise<s
 
 export type ControlsPanelProps = {
   productName: string;
+  color: string;
+  onColorChange: (hex: string) => void;
+  variants?: Array<{
+    id?: string;
+    colorKey?: string;
+    colorLabel: string;
+    colorHex?: string | null;
+    imageUrl?: string | null;
+    glbUrl: string;
+  }>;
+  selectedVariantGlbUrl?: string | null;
+  onVariantSelect?: (glbUrl: string) => void;
   logoDataUrl: string | null;
   onLogoDataUrlChange: (dataUrl: string | null) => void;
   isLogoPlacementMode: boolean;
@@ -109,6 +121,11 @@ export type ControlsPanelProps = {
  */
 export function ControlsPanel({
   productName,
+  color,
+  onColorChange,
+  variants,
+  selectedVariantGlbUrl,
+  onVariantSelect,
   logoDataUrl,
   onLogoDataUrlChange,
   decal,
@@ -221,6 +238,68 @@ export function ControlsPanel({
           Add your logo (upload or drag-and-drop), then adjust placement and export.
         </p>
       </header>
+
+      {/* Variants */}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+            Variants
+          </span>
+          {variants?.length ? (
+            <span className="text-xs text-zinc-500">{variants.length} colors</span>
+          ) : null}
+        </div>
+
+        {variants?.length ? (
+          <div className="flex max-h-64 flex-col gap-2 overflow-y-auto pr-1">
+            {variants.map((v) => {
+              const isSelected =
+                selectedVariantGlbUrl && v.glbUrl
+                  ? selectedVariantGlbUrl === v.glbUrl
+                  : false;
+
+              return (
+                <button
+                  key={v.id ?? `${v.colorKey ?? ""}-${v.glbUrl}`}
+                  type="button"
+                  onClick={() => {
+                    if (onVariantSelect) {
+                      onVariantSelect(v.glbUrl);
+                      return;
+                    }
+                  }}
+                  className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2 text-left transition ${
+                    isSelected
+                      ? "border-blue-500/60 bg-blue-500/10"
+                      : "border-white/10 bg-black/20 hover:border-white/20"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="h-10 w-10 overflow-hidden rounded-lg border border-white/10 bg-white/5">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      {v.imageUrl ? (
+                        <img
+                          src={v.imageUrl}
+                          alt=""
+                          className="h-full w-full object-cover"
+                          loading="lazy"
+                        />
+                      ) : null}
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-zinc-100">
+                        {v.colorLabel}
+                      </span>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-xs text-zinc-500">No colors found for this model.</p>
+        )}
+      </div>
 
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">

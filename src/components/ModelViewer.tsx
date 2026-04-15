@@ -28,7 +28,7 @@ function ModelLoadFallback({ label }: { label?: string }) {
 function Scene({
   orbitRef,
   isLogoPlacementMode,
-  allowDefaultModel = true,
+  allowDefaultModel = false,
   ...hoodie
 }: HoodieModelProps & {
   orbitRef: RefObject<OrbitControlsImpl | null>;
@@ -88,7 +88,7 @@ export type ModelViewerProps = HoodieModelProps & {
 export function ModelViewer({
   captureId = "configurator-viewer",
   isLogoPlacementMode,
-  allowDefaultModel = true,
+  allowDefaultModel = false,
   isGeneratingModel,
   modelGenerationProgress,
   ...hoodie

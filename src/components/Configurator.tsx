@@ -31,15 +31,28 @@ const CAPTURE_ID = "configurator-viewer";
 export default function Configurator({ shareId }: { shareId?: string }) {
   const isSharedView = Boolean(shareId);
   const [modelUrl, setModelUrl] = useState<string | null>(null);
+  const [variants, setVariants] = useState<
+    Array<{
+      id?: string;
+      colorKey?: string;
+      colorLabel: string;
+      colorHex?: string | null;
+      imageUrl?: string | null;
+      glbUrl: string;
+    }>
+  >([]);
+  const [isLoadingModel, setIsLoadingModel] = useState(true);
   const {
     productName,
+    setProductName,
+    color,
+    setColor,
     logoDataUrl,
     setLogoDataUrl,
     decal,
     setDecal,
     isLogoPlacementMode,
     setIsLogoPlacementMode,
-    isHydratingFromShare,
     shareUrl,
     copyShareLink,
     loadFromShareId,
@@ -58,18 +71,42 @@ export default function Configurator({ shareId }: { shareId?: string }) {
     (async () => {
       try {
         const res = await fetch("/api/model", { method: "GET" });
-        const data = (await res.json().catch(() => ({}))) as { modelUrl?: string };
-        if (!cancelled && res.ok && typeof data.modelUrl === "string" && data.modelUrl.trim()) {
+        const data = (await res.json().catch(() => ({}))) as {
+          modelUrl?: string;
+          productName?: string | null;
+          variants?: Array<{
+            id?: string;
+            colorKey?: string;
+            colorLabel: string;
+            colorHex?: string | null;
+            imageUrl?: string | null;
+            glbUrl: string;
+          }>;
+        };
+        if (cancelled || !res.ok) return;
+
+        if (!isSharedView && typeof data.productName === "string" && data.productName.trim()) {
+          setProductName(data.productName.trim());
+        }
+
+        const nextVariants = Array.isArray(data.variants) ? data.variants : [];
+        if (nextVariants.length) {
+          setVariants(nextVariants);
+          const first = nextVariants[0];
+          if (first?.glbUrl) setModelUrl(first.glbUrl);
+        } else if (typeof data.modelUrl === "string" && data.modelUrl.trim()) {
           setModelUrl(data.modelUrl.trim());
         }
       } catch {
-        // ignore; viewer will fallback to built-in default model
+        // ignore
+      } finally {
+        if (!cancelled) setIsLoadingModel(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isSharedView, setProductName]);
 
   const effectiveModelUrl =
     modelUrl && /^https?:\/\//i.test(modelUrl)
@@ -86,6 +123,13 @@ export default function Configurator({ shareId }: { shareId?: string }) {
         <div className="w-full shrink-0 md:w-[380px]">
           <ControlsPanel
             productName={productName}
+            color={color}
+            onColorChange={setColor}
+            variants={variants}
+            selectedVariantGlbUrl={modelUrl}
+            onVariantSelect={(glbUrl) => {
+              setModelUrl(glbUrl);
+            }}
             logoDataUrl={logoDataUrl}
             onLogoDataUrlChange={setLogoDataUrl}
             isLogoPlacementMode={isLogoPlacementMode}
@@ -99,17 +143,29 @@ export default function Configurator({ shareId }: { shareId?: string }) {
         </div>
       ) : null}
       <div className="flex min-h-0 w-full flex-col max-md:h-[min(52dvh,580px)] max-md:min-h-[280px] max-md:flex-shrink-0 md:min-h-[min(70vh,720px)] md:flex-1">
-        <ModelViewer
-          captureId={CAPTURE_ID}
-          modelUrl={effectiveModelUrl ?? undefined}
-          logoDataUrl={logoDataUrl}
-          decal={decal}
-          onDecalChange={isSharedView ? undefined : onDecalChange}
-          isLogoPlacementMode={isLogoPlacementMode}
-          allowDefaultModel={!isSharedView || !isHydratingFromShare}
-          isGeneratingModel={false}
-          modelGenerationProgress={0}
-        />
+        {isLoadingModel ? (
+          <div className="flex h-full min-h-[280px] w-full items-center justify-center rounded-xl border border-white/10 bg-zinc-900 text-sm text-zinc-500 max-md:min-h-[min(52dvh,580px)] md:min-h-[420px]">
+            Loading model…
+          </div>
+        ) : effectiveModelUrl ? (
+          <ModelViewer
+            captureId={CAPTURE_ID}
+            modelUrl={effectiveModelUrl}
+            color={color}
+            logoDataUrl={logoDataUrl}
+            decal={decal}
+            onDecalChange={isSharedView ? undefined : onDecalChange}
+            isLogoPlacementMode={isLogoPlacementMode}
+            allowDefaultModel={false}
+            isGeneratingModel={false}
+            modelGenerationProgress={0}
+          />
+        ) : (
+          <div className="flex h-full min-h-[280px] w-full flex-col items-center justify-center gap-2 rounded-xl border border-white/10 bg-zinc-900 px-6 text-center text-sm text-zinc-500 max-md:min-h-[min(52dvh,580px)] md:min-h-[420px]">
+            <p className="text-zinc-300">No model returned from backend.</p>
+            <p className="text-xs text-zinc-500">Check `/api/model` response / `one_model_data`.</p>
+          </div>
+        )}
       </div>
     </main>
   );

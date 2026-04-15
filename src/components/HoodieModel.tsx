@@ -137,6 +137,7 @@ function useLogoTexture(logoDataUrl: string | null): {
 export type HoodieModelProps = {
   logoDataUrl: string | null;
   decal: DecalConfig;
+  color?: string;
   onDecalChange?: (next: DecalConfig) => void;
   orbitRef?: RefObject<OrbitControlsImpl | null>;
   isLogoPlacementMode?: boolean;
@@ -152,14 +153,15 @@ export type HoodieModelProps = {
 export function HoodieModel({
   logoDataUrl,
   decal,
+  color = "#ffffff",
   onDecalChange,
   orbitRef,
   isLogoPlacementMode,
   autoLogoDrag = true,
   modelUrl,
 }: HoodieModelProps) {
-  const effectiveModelUrl = modelUrl ?? HOODIE_MODEL_PATH;
-  const { scene } = useGLTF(effectiveModelUrl);
+  if (!modelUrl) return null;
+  const { scene } = useGLTF(modelUrl);
   const decalMeshRef = useRef<THREE.Mesh>(null);
   const draggingLogo = useRef(false);
   const logoPointerId = useRef<number | null>(null);
@@ -175,6 +177,22 @@ export function HoodieModel({
     () => normalizedDisplayRoot(scene),
     [scene],
   );
+
+  useEffect(() => {
+    if (!/^#[0-9A-Fa-f]{6}$/.test(color)) return;
+    const next = new THREE.Color(color);
+    displayRoot.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh)) return;
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      mats.forEach((m) => {
+        const anyMat = m as unknown as { color?: THREE.Color };
+        if (anyMat?.color && anyMat.color instanceof THREE.Color) {
+          anyMat.color.copy(next);
+          (m as THREE.Material).needsUpdate = true;
+        }
+      });
+    });
+  }, [color, displayRoot]);
   const flatMeshes = useMemo(
     () => flattenMeshes(displayRoot),
     [displayRoot],

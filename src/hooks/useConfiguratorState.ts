@@ -164,6 +164,9 @@ export function useConfiguratorState() {
 
   return {
     productName,
+    setProductName,
+    color,
+    setColor,
     logoDataUrl,
     setLogoDataUrl: setLogoDataUrlWithReset,
     decal,

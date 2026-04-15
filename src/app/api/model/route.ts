@@ -34,13 +34,26 @@ function coerceModelUrl(row: Record<string, unknown> | null | undefined): string
   return null;
 }
 
+function coerceString(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const s = v.trim();
+  return s ? s : null;
+}
+
+function coerceHexColor(v: unknown): string | null {
+  const s = coerceString(v);
+  if (!s) return null;
+  const hex = s.startsWith("#") ? s : `#${s}`;
+  return /^#[0-9A-Fa-f]{6}$/.test(hex) ? hex : null;
+}
+
 export async function GET(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id");
 
   try {
     const supabase = createServerSupabaseAdminClient();
 
-    let query = supabase.from(TABLE).select("*").limit(1);
+    let query = supabase.from(TABLE).select("*").order("id", { ascending: true });
     if (id) query = query.eq("id", id);
 
     const { data, error } = await query;
@@ -49,8 +62,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 502 });
     }
 
-    const row = Array.isArray(data) ? data[0] : null;
-    const modelUrl = coerceModelUrl((row ?? null) as Record<string, unknown> | null);
+    const rows = Array.isArray(data) ? (data as unknown[]) : [];
+    const first = (rows[0] ?? null) as Record<string, unknown> | null;
+
+    const modelUrl = coerceModelUrl(first);
 
     if (!modelUrl) {
       return NextResponse.json(
@@ -59,8 +74,28 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    const variants = rows
+      .map((r) => (r ?? null) as Record<string, unknown> | null)
+      .filter((r): r is Record<string, unknown> => Boolean(r))
+      .map((r) => ({
+        id: coerceString(r.id) ?? String(r.id ?? ""),
+        colorKey: coerceString(r.color_key) ?? coerceString(r.colorKey) ?? "",
+        colorLabel: coerceString(r.color_label) ?? coerceString(r.colorLabel) ?? "Color",
+        colorHex: coerceHexColor(r.color_hex) ?? coerceHexColor(r.colorHex),
+        imageUrl: coerceString(r.image_url) ?? coerceString(r.imageUrl),
+        glbUrl: coerceString(r.glb_url) ?? coerceString(r.glbUrl) ?? modelUrl,
+        productUrl: coerceString(r.product_url) ?? coerceString(r.productUrl),
+        productName: coerceString(r.product_name) ?? coerceString(r.productName),
+      }))
+      .filter((v) => Boolean(v.glbUrl));
+
     return NextResponse.json(
-      { modelUrl, row },
+      {
+        modelUrl,
+        productName: coerceString(first?.product_name) ?? null,
+        productUrl: coerceString(first?.product_url) ?? null,
+        variants,
+      },
       {
         headers: { "Cache-Control": "public, max-age=60, stale-while-revalidate=300" },
       },

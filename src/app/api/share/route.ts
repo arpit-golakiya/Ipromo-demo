@@ -9,6 +9,8 @@ type SharePayload = {
   decal: DecalConfig;
   /** Selected preloaded model id (from the library). */
   modelId: string | null;
+  /** Selected variant GLB URL (from `/api/model` variants). */
+  selectedVariantGlbUrl?: string | null;
   /** Logo image stored as a data URL (we may later migrate this to Supabase Storage). */
   logoDataUrl: string | null;
 };

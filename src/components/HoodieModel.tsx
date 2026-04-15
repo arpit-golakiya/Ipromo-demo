@@ -150,7 +150,7 @@ export type HoodieModelProps = {
   modelUrl?: string;
 };
 
-export function HoodieModel({
+function HoodieModelInner({
   logoDataUrl,
   decal,
   color = "#ffffff",
@@ -159,8 +159,7 @@ export function HoodieModel({
   isLogoPlacementMode,
   autoLogoDrag = true,
   modelUrl,
-}: HoodieModelProps) {
-  if (!modelUrl) return null;
+}: Omit<HoodieModelProps, "modelUrl"> & { modelUrl: string }) {
   const { scene } = useGLTF(modelUrl);
   const decalMeshRef = useRef<THREE.Mesh>(null);
   const draggingLogo = useRef(false);
@@ -419,6 +418,12 @@ export function HoodieModel({
       ))}
     </group>
   );
+}
+
+export function HoodieModel(props: HoodieModelProps) {
+  if (!props.modelUrl) return null;
+  // Keep hook ordering stable by only calling hooks in the inner component.
+  return <HoodieModelInner {...props} modelUrl={props.modelUrl} />;
 }
 
 useGLTF.preload(HOODIE_MODEL_PATH);

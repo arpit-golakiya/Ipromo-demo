@@ -53,6 +53,8 @@ export default function Configurator({ shareId }: { shareId?: string }) {
     setDecal,
     isLogoPlacementMode,
     setIsLogoPlacementMode,
+    selectedVariantGlbUrl,
+    setSelectedVariantGlbUrl,
     shareUrl,
     copyShareLink,
     loadFromShareId,
@@ -92,8 +94,11 @@ export default function Configurator({ shareId }: { shareId?: string }) {
         const nextVariants = Array.isArray(data.variants) ? data.variants : [];
         if (nextVariants.length) {
           setVariants(nextVariants);
-          const first = nextVariants[0];
-          if (first?.glbUrl) setModelUrl(first.glbUrl);
+          const desired =
+            selectedVariantGlbUrl &&
+            nextVariants.find((v) => v.glbUrl === selectedVariantGlbUrl)?.glbUrl;
+          const first = nextVariants[0]?.glbUrl;
+          setModelUrl(desired ?? first ?? null);
         } else if (typeof data.modelUrl === "string" && data.modelUrl.trim()) {
           setModelUrl(data.modelUrl.trim());
         }
@@ -106,7 +111,14 @@ export default function Configurator({ shareId }: { shareId?: string }) {
     return () => {
       cancelled = true;
     };
-  }, [isSharedView, setProductName]);
+  }, [isSharedView, selectedVariantGlbUrl, setProductName]);
+
+  // When a share payload selects a specific GLB, prefer it.
+  useEffect(() => {
+    if (!isSharedView) return;
+    if (!selectedVariantGlbUrl) return;
+    setModelUrl(selectedVariantGlbUrl);
+  }, [isSharedView, selectedVariantGlbUrl]);
 
   const effectiveModelUrl =
     modelUrl && /^https?:\/\//i.test(modelUrl)
@@ -129,6 +141,7 @@ export default function Configurator({ shareId }: { shareId?: string }) {
             selectedVariantGlbUrl={modelUrl}
             onVariantSelect={(glbUrl) => {
               setModelUrl(glbUrl);
+              setSelectedVariantGlbUrl(glbUrl);
             }}
             logoDataUrl={logoDataUrl}
             onLogoDataUrlChange={setLogoDataUrl}

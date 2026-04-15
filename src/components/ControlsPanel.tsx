@@ -121,8 +121,8 @@ export type ControlsPanelProps = {
  */
 export function ControlsPanel({
   productName,
-  color,
-  onColorChange,
+  color: _color,
+  onColorChange: _onColorChange,
   variants,
   selectedVariantGlbUrl,
   onVariantSelect,
@@ -276,8 +276,8 @@ export function ControlsPanel({
                 >
                   <div className="flex items-center gap-2">
                     <div className="h-10 w-10 overflow-hidden rounded-lg border border-white/10 bg-white/5">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       {v.imageUrl ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
                         <img
                           src={v.imageUrl}
                           alt=""

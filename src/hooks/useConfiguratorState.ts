@@ -47,6 +47,9 @@ export function useConfiguratorState() {
   const [isLogoPlacementMode, setIsLogoPlacementMode] = useState(false);
 
   const [productName, setProductName] = useState(DEFAULT_PRODUCT_NAME);
+  const [selectedVariantGlbUrl, setSelectedVariantGlbUrl] = useState<string | null>(
+    null,
+  );
 
   const hydratedFromUrl = useRef(false);
   const hydratedFromShare = useRef(false);
@@ -89,6 +92,7 @@ export function useConfiguratorState() {
           color: string;
           decal: DecalConfig;
           modelId?: string | null;
+          selectedVariantGlbUrl?: string | null;
           logoDataUrl: string | null;
         };
         error?: string;
@@ -99,6 +103,9 @@ export function useConfiguratorState() {
       setProductName(p.productName || DEFAULT_PRODUCT_NAME);
       if (p.color) setColor(p.color);
       if (p.decal) setDecal(p.decal);
+      if (typeof p.selectedVariantGlbUrl === "string" && p.selectedVariantGlbUrl.trim()) {
+        setSelectedVariantGlbUrl(p.selectedVariantGlbUrl.trim());
+      }
       if (p.logoDataUrl && p.logoDataUrl.startsWith("data:image")) setLogoDataUrl(p.logoDataUrl);
     } catch {
       // ignore
@@ -147,6 +154,7 @@ export function useConfiguratorState() {
           color,
           decal,
           modelId: null,
+          selectedVariantGlbUrl,
           logoDataUrl,
         }),
       });
@@ -160,7 +168,7 @@ export function useConfiguratorState() {
     } catch {
       window.prompt("Copy this link:", full);
     }
-  }, [buildShareHref, color, decal, logoDataUrl, productName]);
+  }, [buildShareHref, color, decal, logoDataUrl, productName, selectedVariantGlbUrl]);
 
   return {
     productName,
@@ -173,6 +181,8 @@ export function useConfiguratorState() {
     setDecal,
     isLogoPlacementMode,
     setIsLogoPlacementMode,
+    selectedVariantGlbUrl,
+    setSelectedVariantGlbUrl,
     isHydratingFromShare,
     shareUrl,
     copyShareLink,

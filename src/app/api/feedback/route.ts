@@ -26,7 +26,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 
-  const question = (payload.question ?? "").trim();
   const answer = (payload.answer ?? "").trim();
 
   if (!answer) {

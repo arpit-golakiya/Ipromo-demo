@@ -99,6 +99,7 @@ export default function Configurator({ shareId }: { shareId?: string }) {
       <div className="flex min-h-0 w-full flex-col max-md:h-[min(52dvh,580px)] max-md:min-h-[280px] max-md:flex-shrink-0 md:min-h-[min(70vh,720px)] md:flex-1">
         <ModelViewer
           captureId={CAPTURE_ID}
+          title={productName}
           logoDataUrl={logoDataUrl}
           decal={decal}
           onDecalChange={isSharedView ? undefined : onDecalChange}

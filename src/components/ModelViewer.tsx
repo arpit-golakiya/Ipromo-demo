@@ -84,6 +84,8 @@ function Scene({
 export type ModelViewerProps = HoodieModelProps & {
   /** DOM id for PDF / html2canvas capture wrapper */
   captureId?: string;
+  /** Optional label shown above the canvas (included in capture). */
+  title?: string;
   isLogoPlacementMode?: boolean;
   /** If false, don't render the built-in default model while waiting for a real model URL. */
   allowDefaultModel?: boolean;
@@ -97,6 +99,7 @@ export type ModelViewerProps = HoodieModelProps & {
  */
 export function ModelViewer({
   captureId = "configurator-viewer",
+  title,
   isLogoPlacementMode,
   allowDefaultModel = true,
   isGeneratingModel,
@@ -112,6 +115,11 @@ export function ModelViewer({
       id={captureId}
       className="relative box-border h-full min-h-[240px] w-full flex-1 overflow-hidden rounded-xl border border-white/10 bg-gradient-to-b from-zinc-900 to-black md:min-h-0"
     >
+      {title ? (
+        <div className="pointer-events-none absolute left-0 top-0 z-10 w-full bg-gradient-to-b from-black/70 to-black/0 px-4 py-3">
+          <p className="truncate text-sm font-semibold text-zinc-100">{title}</p>
+        </div>
+      ) : null}
       <Canvas
         key={hoodie.modelUrl ?? "static"}
         className="touch-none"

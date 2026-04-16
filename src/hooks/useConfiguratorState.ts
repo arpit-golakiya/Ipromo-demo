@@ -187,7 +187,9 @@ export function useConfiguratorState() {
     setIsLoadingLibrary(true);
     setLibraryError(null);
     try {
-      const res = await fetch(`/api/library?q=${encodeURIComponent(q)}&limit=80`);
+      const res = await fetch(`/api/library?q=${encodeURIComponent(q)}&pageSize=50`, {
+        cache: "no-store",
+      });
       const data: { products?: LibraryProduct[]; items?: LibraryItem[]; error?: string } =
         await res.json();
       if (!res.ok) {

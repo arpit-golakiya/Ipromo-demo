@@ -3,22 +3,61 @@ import { createServerSupabaseAdminClient } from "@/lib/supabase";
 
 const TABLE = "preloaded_models";
 
+type Cursor = { createdAt: string; id: string };
+
+function parsePositiveInt(v: string | null, fallback: number, min: number, max: number): number {
+  const n = Number(v ?? "");
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(Math.max(Math.trunc(n), min), max);
+}
+
+function decodeCursor(raw: string | null): Cursor | null {
+  if (!raw) return null;
+  try {
+    const json = Buffer.from(raw, "base64url").toString("utf8");
+    const v = JSON.parse(json) as Partial<Cursor>;
+    if (!v || typeof v.createdAt !== "string" || typeof v.id !== "string") return null;
+    if (!v.createdAt.trim() || !v.id.trim()) return null;
+    return { createdAt: v.createdAt, id: v.id };
+  } catch {
+    return null;
+  }
+}
+
+function encodeCursor(c: Cursor): string {
+  return Buffer.from(JSON.stringify(c), "utf8").toString("base64url");
+}
+
 export async function GET(req: NextRequest) {
   const q = (req.nextUrl.searchParams.get("q") ?? "").trim();
-  const rawLimit = Number(req.nextUrl.searchParams.get("limit") ?? "80");
-  const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 500) : 80;
+  // Product pagination: return N *products* per page, not N raw rows.
+  const pageSize = parsePositiveInt(req.nextUrl.searchParams.get("pageSize"), 5, 1, 50);
+  const cursor = decodeCursor(req.nextUrl.searchParams.get("cursor"));
 
   try {
     const supabase = createServerSupabaseAdminClient();
+    // We may need to read more raw rows than pageSize, because each product can have many variants.
+    // Keep this bounded to avoid huge responses.
+    const rowLimit = Math.min(Math.max(pageSize * 80, 200), 2000);
+
     let query = supabase
       .from(TABLE)
       .select("id,product_name,color_label,image_url,glb_url,created_at")
       .not("glb_url", "is", null)
       .order("created_at", { ascending: false })
-      .limit(limit);
+      .order("id", { ascending: false })
+      .limit(rowLimit);
 
     if (q) {
       query = query.ilike("product_name", `%${q}%`);
+    }
+
+    if (cursor) {
+      // created_at < cursor.createdAt OR (created_at == cursor.createdAt AND id < cursor.id)
+      // Note: `or()` uses PostgREST filter syntax.
+      query = query.or(
+        `created_at.lt.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},id.lt.${cursor.id})`,
+      );
     }
 
     const { data, error } = await query;
@@ -34,8 +73,10 @@ export async function GET(req: NextRequest) {
       color_label: string | null;
       image_url: string | null;
       glb_url: string | null;
+      created_at: string | null;
     }>;
 
+    // Accumulate up to `pageSize` unique products in insertion order.
     const byProduct = new Map<
       string,
       {
@@ -49,10 +90,17 @@ export async function GET(req: NextRequest) {
       }
     >();
 
+    let lastIncludedRow: { created_at: string; id: string } | null = null;
+
     for (const row of rows) {
       const productName = String(row.product_name ?? "").trim();
       const glbUrl = String(row.glb_url ?? "").trim();
       if (!productName || !glbUrl) continue;
+
+      if (!byProduct.has(productName) && byProduct.size >= pageSize) {
+        // We've collected enough products for this page.
+        break;
+      }
 
       const id = String(row.id);
       const label =
@@ -79,6 +127,10 @@ export async function GET(req: NextRequest) {
         label,
         image_url: typeof row.image_url === "string" ? row.image_url : null,
       });
+
+      if (typeof row.created_at === "string" && row.created_at) {
+        lastIncludedRow = { created_at: row.created_at, id };
+      }
     }
 
     const products = Array.from(byProduct.values()).map((p) => ({
@@ -95,7 +147,15 @@ export async function GET(req: NextRequest) {
       })),
     );
 
-    return NextResponse.json({ products, items });
+    // If we hit the rowLimit, assume there may be more data. Cursor is based on the last included row.
+    const nextCursor =
+      lastIncludedRow && rows.length > 0 && rows.length >= rowLimit
+        ? encodeCursor({ createdAt: lastIncludedRow.created_at, id: lastIncludedRow.id })
+        : lastIncludedRow && rows.length > 0 && byProduct.size >= pageSize
+          ? encodeCursor({ createdAt: lastIncludedRow.created_at, id: lastIncludedRow.id })
+          : null;
+
+    return NextResponse.json({ products, items, nextCursor });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: msg }, { status: 500 });

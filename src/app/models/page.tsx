@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
 type LibraryProduct = {
@@ -13,48 +13,85 @@ type LibraryProduct = {
   }>;
 };
 
+type LibraryResponse = {
+  products?: LibraryProduct[];
+  nextCursor?: string | null;
+  error?: string;
+};
+
 export default function AllProductsPage() {
   const [query, setQuery] = useState("");
   const [products, setProducts] = useState<LibraryProduct[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedByProduct, setExpandedByProduct] = useState<Record<string, boolean>>({});
   const [visibleVariantsByProduct, setVisibleVariantsByProduct] = useState<Record<string, number>>(
     {},
   );
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const activeQueryRef = useRef<string>("");
+
+  const fetchPage = async (opts: { q: string; cursor: string | null; append: boolean }) => {
+    const url = new URL("/api/library", window.location.origin);
+    url.searchParams.set("q", opts.q);
+    url.searchParams.set("pageSize", "5");
+    if (opts.cursor) url.searchParams.set("cursor", opts.cursor);
+
+    const res = await fetch(url.toString(), { cache: "no-store" });
+    const data: LibraryResponse = await res.json().catch(() => ({}));
+    if (!res.ok || !Array.isArray(data.products)) {
+      throw new Error(data?.error ?? "Failed to load products");
+    }
+
+    // Ignore responses for stale queries (race protection).
+    if (activeQueryRef.current !== opts.q) return;
+
+    setNextCursor(typeof data.nextCursor === "string" ? data.nextCursor : null);
+    setProducts((prev) => {
+      const incoming = data.products ?? [];
+      if (!opts.append) return incoming;
+      const seen = new Set(prev.map((p) => p.product_name));
+      const merged = [...prev];
+      for (const p of incoming) {
+        if (!seen.has(p.product_name)) {
+          merged.push(p);
+          seen.add(p.product_name);
+        }
+      }
+      return merged;
+    });
+  };
 
   useEffect(() => {
     let mounted = true;
-    const load = async () => {
+    const q = query.trim();
+    activeQueryRef.current = q;
+
+    const debounce = setTimeout(() => {
+      if (!mounted) return;
       setIsLoading(true);
+      setIsLoadingMore(false);
       setError(null);
-      try {
-        const res = await fetch(
-          `/api/library?q=${encodeURIComponent(query)}&limit=500`,
-          { cache: "no-store" },
-        );
-        const data: { products?: LibraryProduct[]; error?: string } = await res.json();
-        if (!res.ok || !Array.isArray(data.products)) {
-          if (mounted) setError(data.error ?? "Failed to load products");
-          if (mounted) setProducts([]);
-          return;
-        }
-        if (mounted) {
-          setProducts(data.products);
-          // Reset expansion when the dataset changes (e.g. new search query).
-          setExpandedByProduct({});
-          setVisibleVariantsByProduct({});
-        }
-      } catch {
-        if (mounted) setError("Failed to load products");
-        if (mounted) setProducts([]);
-      } finally {
-        if (mounted) setIsLoading(false);
-      }
-    };
-    void load();
+      setProducts([]);
+      setNextCursor(null);
+      setExpandedByProduct({});
+      setVisibleVariantsByProduct({});
+
+      fetchPage({ q, cursor: null, append: false })
+        .catch((e) => {
+          if (mounted) setError(e instanceof Error ? e.message : "Failed to load products");
+        })
+        .finally(() => {
+          if (mounted) setIsLoading(false);
+        });
+    }, 350);
+
     return () => {
       mounted = false;
+      clearTimeout(debounce);
     };
   }, [query]);
 
@@ -62,6 +99,31 @@ export default function AllProductsPage() {
     () => products.reduce((sum, p) => sum + (p.variants?.length ?? 0), 0),
     [products],
   );
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    if (isLoading || isLoadingMore) return;
+    if (!nextCursor) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const hit = entries.some((e) => e.isIntersecting);
+        if (!hit) return;
+        if (isLoading || isLoadingMore) return;
+        if (!nextCursor) return;
+
+        setIsLoadingMore(true);
+        fetchPage({ q: activeQueryRef.current, cursor: nextCursor, append: true })
+          .catch((e) => setError(e instanceof Error ? e.message : "Failed to load products"))
+          .finally(() => setIsLoadingMore(false));
+      },
+      { root: null, rootMargin: "600px 0px", threshold: 0.01 },
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [isLoading, isLoadingMore, nextCursor]);
 
   return (
     <main className="mx-auto w-full max-w-[1600px] px-3 py-4 sm:px-4 md:px-6 md:py-6">
@@ -185,6 +247,11 @@ export default function AllProductsPage() {
           );
         })}
       </div>
+
+      <div ref={sentinelRef} className="h-8" />
+      {isLoadingMore ? (
+        <p className="mt-3 text-sm text-zinc-400">Loading more products…</p>
+      ) : null}
     </main>
   );
 }

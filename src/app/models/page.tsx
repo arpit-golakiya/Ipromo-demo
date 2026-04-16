@@ -13,7 +13,7 @@ type LibraryProduct = {
   }>;
 };
 
-export default function AllModelsPage() {
+export default function AllProductsPage() {
   const [query, setQuery] = useState("");
   const [products, setProducts] = useState<LibraryProduct[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -31,13 +31,13 @@ export default function AllModelsPage() {
         );
         const data: { products?: LibraryProduct[]; error?: string } = await res.json();
         if (!res.ok || !Array.isArray(data.products)) {
-          if (mounted) setError(data.error ?? "Failed to load models");
+          if (mounted) setError(data.error ?? "Failed to load products");
           if (mounted) setProducts([]);
           return;
         }
         if (mounted) setProducts(data.products);
       } catch {
-        if (mounted) setError("Failed to load models");
+        if (mounted) setError("Failed to load products");
         if (mounted) setProducts([]);
       } finally {
         if (mounted) setIsLoading(false);
@@ -58,7 +58,7 @@ export default function AllModelsPage() {
     <main className="mx-auto w-full max-w-[1600px] px-3 py-4 sm:px-4 md:px-6 md:py-6">
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-lg font-semibold text-white">All Models</h1>
+          <h1 className="text-lg font-semibold text-white">All Products</h1>
           <p className="text-sm text-zinc-400">
             {products.length} product{products.length === 1 ? "" : "s"} · {totalVariants} color
             {totalVariants === 1 ? "" : "s"}
@@ -74,9 +74,9 @@ export default function AllModelsPage() {
       </div>
 
       {error ? <p className="mb-3 text-sm text-red-400">{error}</p> : null}
-      {isLoading ? <p className="text-sm text-zinc-400">Loading models…</p> : null}
+      {isLoading ? <p className="text-sm text-zinc-400">Loading products…</p> : null}
       {!isLoading && products.length === 0 ? (
-        <p className="text-sm text-zinc-500">No models found.</p>
+        <p className="text-sm text-zinc-500">No products found.</p>
       ) : null}
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">

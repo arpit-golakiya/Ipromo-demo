@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "iPromo — Hoodie Configurator",
-  description: "3D product configurator — color, logo, share & PDF",
+  title: "iPromo — Design",
+  description: "3D product design — color, logo, share & PDF",
 };
 
 export default function RootLayout({

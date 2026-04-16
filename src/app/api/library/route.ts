@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
 
     let query = supabase
       .from(TABLE)
-      .select("id,product_name,color_label,image_url,glb_url,created_at")
+      .select("id,product_name,product_key,color_label,image_url,glb_url,created_at")
       .not("glb_url", "is", null)
       .order("created_at", { ascending: false })
       .order("id", { ascending: false })
@@ -70,6 +70,7 @@ export async function GET(req: NextRequest) {
     ) as Array<{
       id: string | number;
       product_name: string | null;
+      product_key?: string | null;
       color_label: string | null;
       image_url: string | null;
       glb_url: string | null;
@@ -80,6 +81,7 @@ export async function GET(req: NextRequest) {
     const byProduct = new Map<
       string,
       {
+        product_key: string;
         product_name: string;
         preview_image_url: string | null;
         variants: Array<{
@@ -97,7 +99,11 @@ export async function GET(req: NextRequest) {
       const glbUrl = String(row.glb_url ?? "").trim();
       if (!productName || !glbUrl) continue;
 
-      if (!byProduct.has(productName) && byProduct.size >= pageSize) {
+      const productKey =
+        (typeof row.product_key === "string" ? row.product_key : null) ?? productName;
+      const groupKey = productKey.trim() || productName;
+
+      if (!byProduct.has(groupKey) && byProduct.size >= pageSize) {
         // We've collected enough products for this page.
         break;
       }
@@ -107,14 +113,15 @@ export async function GET(req: NextRequest) {
         String(row.color_label ?? "").trim() || "Variant";
 
       const group =
-        byProduct.get(productName) ??
+        byProduct.get(groupKey) ??
         (() => {
           const g = {
+            product_key: groupKey,
             product_name: productName,
             preview_image_url: typeof row.image_url === "string" ? row.image_url : null,
             variants: [] as Array<{ id: string; label: string; image_url: string | null }>,
           };
-          byProduct.set(productName, g);
+          byProduct.set(groupKey, g);
           return g;
         })();
 
@@ -143,6 +150,7 @@ export async function GET(req: NextRequest) {
       p.variants.map((v) => ({
         id: v.id,
         name: p.product_name,
+        product_key: p.product_key,
         image_url: v.image_url,
       })),
     );

@@ -94,6 +94,7 @@ async function removeWhiteBackground(dataUrl: string, tolerance = 40): Promise<s
 
 export type ControlsPanelProps = {
   productName: string;
+  productKey: string | null;
   libraryQuery: string;
   libraryProducts: LibraryProduct[];
   isLoadingLibrary: boolean;
@@ -117,6 +118,7 @@ export type ControlsPanelProps = {
  */
 export function ControlsPanel({
   productName,
+  productKey,
   libraryQuery,
   libraryProducts,
   isLoadingLibrary,
@@ -310,6 +312,7 @@ export function ControlsPanel({
                     const item: LibraryItem = {
                       id: v.id,
                       name: `${product.product_name} — ${v.label}`,
+                      product_key: product.product_key ?? product.product_name,
                       image_url: v.image_url,
                     };
                     return (
@@ -494,6 +497,7 @@ export function ControlsPanel({
             {Math.round(decal.scale * 100)}%
           </span>
         </label>
+
       </div>
 
       <div className="mt-auto flex flex-col gap-2 border-t border-white/10 pt-4">

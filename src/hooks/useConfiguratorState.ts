@@ -8,10 +8,13 @@ const DEFAULT_PRODUCT_NAME = "Select a product";
 export type LibraryItem = {
   id: string;
   name: string;
+  /** Stable grouping key for presets (preferred over product_name). */
+  product_key?: string | null;
   image_url: string | null;
 };
 
 export type LibraryProduct = {
+  product_key?: string | null;
   product_name: string;
   preview_image_url: string | null;
   variants: Array<{
@@ -69,8 +72,10 @@ export function useConfiguratorState() {
   const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null);
   const [decal, setDecal] = useState<DecalConfig>(DEFAULT_DECAL);
   const [isLogoPlacementMode, setIsLogoPlacementMode] = useState(false);
+  const [decalPreset, setDecalPreset] = useState<DecalConfig | null>(null);
 
   const [productName, setProductName] = useState(DEFAULT_PRODUCT_NAME);
+  const [productKey, setProductKey] = useState<string | null>(null);
 
   const [libraryQuery, setLibraryQuery] = useState("");
   const [libraryProducts, setLibraryProducts] = useState<LibraryProduct[]>([]);
@@ -92,8 +97,10 @@ export function useConfiguratorState() {
       setIsLogoPlacementMode(false);
       return;
     }
-    setDecal(DEFAULT_DECAL);
-  }, []);
+    // If we have a saved preset for the currently-selected model, use it.
+    // Otherwise fall back to the default placement.
+    setDecal(decalPreset ?? DEFAULT_DECAL);
+  }, [decalPreset]);
 
   useEffect(() => {
     if (hydratedFromUrl.current) return;
@@ -112,6 +119,51 @@ export function useConfiguratorState() {
     if (logo && logo.startsWith("data:image")) setLogoDataUrl(logo);
     if (hasDecalParams(sp)) setDecal(readDecalFromParams(sp));
   }, []);
+
+  // Load preset for the selected model id (if any). If a logo is already present,
+  // apply the preset immediately so switching products keeps auto-placement behavior.
+  useEffect(() => {
+    let cancelled = false;
+    const modelId = selectedModelId;
+    const pk = productKey;
+    if (!modelId && !pk) {
+      setDecalPreset(null);
+      return;
+    }
+
+    const loadPreset = async () => {
+      try {
+        const params = new URLSearchParams();
+        if (modelId) params.set("modelId", modelId);
+        if (pk) params.set("productKey", pk);
+        const res = await fetch(`/api/decal-presets?${params.toString()}`, {
+          cache: "no-store",
+        });
+        const data: {
+          decal?: DecalConfig | null;
+          productKey?: string | null;
+          error?: string;
+        } = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Failed to load decal preset");
+        if (cancelled) return;
+        // If we loaded via modelId, the API can resolve productKey for us.
+        if (!pk && typeof data.productKey === "string" && data.productKey.trim()) {
+          setProductKey(data.productKey.trim());
+        }
+        const preset = data.decal ?? null;
+        setDecalPreset(preset);
+        if (preset && logoDataUrl) setDecal(preset);
+      } catch {
+        if (cancelled) return;
+        setDecalPreset(null);
+      }
+    };
+
+    void loadPreset();
+    return () => {
+      cancelled = true;
+    };
+  }, [logoDataUrl, productKey, selectedModelId]);
 
   const loadFromShareId = useCallback(async (shareId: string) => {
     if (!shareId || hydratedFromShare.current) return;
@@ -134,6 +186,7 @@ export function useConfiguratorState() {
       const p = data.payload;
       if (p.v !== 1) return;
       setProductName(p.productName || DEFAULT_PRODUCT_NAME);
+      setProductKey(null);
       if (p.color) setColor(p.color);
       if (p.decal) setDecal(p.decal);
       setSelectedModelId(parseModelId(p.modelId));
@@ -244,10 +297,12 @@ export function useConfiguratorState() {
     if (!item) {
       setSelectedModelId(null);
       setProductName(DEFAULT_PRODUCT_NAME);
+      setProductKey(null);
       return;
     }
     setSelectedModelId(item.id);
     setProductName(item.name || DEFAULT_PRODUCT_NAME);
+    setProductKey(typeof item.product_key === "string" ? item.product_key : null);
   }, []);
 
   const copyShareLink = useCallback(async () => {
@@ -278,11 +333,14 @@ export function useConfiguratorState() {
   }, [buildShareHref, color, decal, logoDataUrl, productName, selectedModelId]);
 
   return {
+    productKey,
     productName,
     logoDataUrl,
     setLogoDataUrl: setLogoDataUrlWithReset,
     decal,
     setDecal,
+    decalPreset,
+    setDecalPreset,
     isLogoPlacementMode,
     setIsLogoPlacementMode,
     libraryQuery,

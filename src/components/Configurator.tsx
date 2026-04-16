@@ -34,6 +34,7 @@ export default function Configurator({ shareId }: { shareId?: string }) {
   const searchParams = useSearchParams();
   const {
     productName,
+    productKey,
     logoDataUrl,
     setLogoDataUrl,
     decal,
@@ -77,6 +78,7 @@ export default function Configurator({ shareId }: { shareId?: string }) {
         <div className="w-full shrink-0 md:w-[380px]">
           <ControlsPanel
             productName={productName}
+            productKey={productKey}
             libraryQuery={libraryQuery}
             libraryProducts={libraryProducts}
             isLoadingLibrary={isLoadingLibrary}

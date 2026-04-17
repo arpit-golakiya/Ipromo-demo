@@ -5,7 +5,10 @@ import type { DecalConfig } from "@/types/configurator";
 import { downloadConfiguratorPdf } from "@/lib/pdfExport";
 import type { LibraryItem, LibraryProduct } from "@/hooks/useConfiguratorState";
 
-const LOGO_MAX_PX = 256;
+// Keep this reasonably high; the logo is used as a decal texture, so low values
+// quickly look blurry. Share URLs can grow with higher-res data URLs; we still
+// warn users if the share link becomes too long.
+const LOGO_MAX_PX = 1024;
 
 async function compressLogoImage(dataUrl: string): Promise<string> {
   if (dataUrl.startsWith("data:image/svg")) return dataUrl;
@@ -24,18 +27,42 @@ async function compressLogoImage(dataUrl: string): Promise<string> {
       const ctx = canvas.getContext("2d");
       if (!ctx) { resolve(dataUrl); return; }
 
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
       ctx.drawImage(img, 0, 0, w, h);
 
       // Keep PNG for any image that might carry transparency (PNG input or bg-removed)
       const isPng = dataUrl.startsWith("data:image/png");
       const compressed = isPng
         ? canvas.toDataURL("image/png")
-        : canvas.toDataURL("image/jpeg", 0.82);
+        : canvas.toDataURL("image/jpeg", 0.92);
       resolve(compressed);
     };
     img.onerror = () => resolve(dataUrl);
     img.src = dataUrl;
   });
+}
+
+async function removeBackgroundViaApi(file: File): Promise<string> {
+  const form = new FormData();
+  form.set("image", file, file.name || "logo.png");
+
+  const res = await fetch("/api/remove-bg", {
+    method: "POST",
+    body: form,
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`remove-bg failed: HTTP ${res.status}${text ? ` — ${text.slice(0, 200)}` : ""}`);
+  }
+
+  const json = (await res.json()) as { dataUrl?: unknown };
+  const dataUrl = typeof json?.dataUrl === "string" ? json.dataUrl : null;
+  if (!dataUrl || !dataUrl.startsWith("data:image/")) {
+    throw new Error("remove-bg failed: invalid response payload");
+  }
+  return dataUrl;
 }
 
 /**
@@ -118,7 +145,7 @@ export type ControlsPanelProps = {
  */
 export function ControlsPanel({
   productName,
-  productKey,
+  productKey: _productKey,
   libraryQuery,
   libraryProducts,
   isLoadingLibrary,
@@ -136,9 +163,12 @@ export function ControlsPanel({
   onCopyShare,
   captureElementId,
 }: ControlsPanelProps) {
+  void _productKey;
   const fileRef = useRef<HTMLInputElement>(null);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [removeWhiteBg, setRemoveWhiteBg] = useState(true);
+  const [isLogoProcessing, setIsLogoProcessing] = useState(false);
+  const [logoProcessingLabel, setLogoProcessingLabel] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [logoDropActive, setLogoDropActive] = useState(false);
   const [localQuery, setLocalQuery] = useState(libraryQuery);
@@ -174,14 +204,49 @@ export function ControlsPanel({
       alert("Please use PNG, JPG, or SVG.");
       return;
     }
+    setIsLogoProcessing(true);
+    setLogoProcessingLabel("Optimizing logo…");
+
+    if (removeWhiteBg && !f.type.includes("svg")) {
+      // Prefer the background-removal API for best edges/transparency.
+      setLogoProcessingLabel("Removing background…");
+      removeBackgroundViaApi(f)
+        .then(compressLogoImage)
+        .then((result) => onLogoDataUrlChange(result))
+        .catch(() => {
+          // Fallback to local near-white removal if the API fails.
+          setLogoProcessingLabel("Optimizing logo…");
+          const reader = new FileReader();
+          reader.onload = () => {
+            const res = reader.result;
+            if (typeof res !== "string") return;
+            removeWhiteBackground(res)
+              .then(compressLogoImage)
+              .then((result) => onLogoDataUrlChange(result))
+              .finally(() => {
+                setLogoProcessingLabel(null);
+                setIsLogoProcessing(false);
+              });
+          };
+          reader.readAsDataURL(f);
+        })
+        .finally(() => {
+          setLogoProcessingLabel(null);
+          setIsLogoProcessing(false);
+        });
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = () => {
       const res = reader.result;
       if (typeof res !== "string") return;
-      const pipeline = removeWhiteBg
-        ? removeWhiteBackground(res).then(compressLogoImage)
-        : compressLogoImage(res);
-      pipeline.then((result) => onLogoDataUrlChange(result));
+      compressLogoImage(res)
+        .then((result) => onLogoDataUrlChange(result))
+        .finally(() => {
+          setLogoProcessingLabel(null);
+          setIsLogoProcessing(false);
+        });
     };
     reader.readAsDataURL(f);
   }
@@ -199,6 +264,7 @@ export function ControlsPanel({
   function handleLogoDragOver(e: React.DragEvent) {
     e.preventDefault();
     e.stopPropagation();
+    if (isLogoProcessing) return;
     if (e.dataTransfer.types.includes("Files")) setLogoDropActive(true);
   }
 
@@ -212,11 +278,13 @@ export function ControlsPanel({
     e.preventDefault();
     e.stopPropagation();
     setLogoDropActive(false);
+    if (isLogoProcessing) return;
     const f = e.dataTransfer.files?.[0];
     if (f) processLogoFile(f);
   }
 
   function clearLogo() {
+    if (isLogoProcessing) return;
     onLogoDataUrlChange(null);
     if (fileRef.current) fileRef.current.value = "";
   }
@@ -359,7 +427,7 @@ export function ControlsPanel({
             Logo (PNG / JPG / SVG)
           </span>
           {/* Background removal toggle */}
-          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-zinc-400 select-none">
+          <label className={`flex cursor-pointer items-center gap-1.5 text-xs text-zinc-400 select-none ${isLogoProcessing ? "opacity-60 pointer-events-none" : ""}`}>
             <div
               role="checkbox"
               aria-checked={removeWhiteBg}
@@ -382,12 +450,23 @@ export function ControlsPanel({
           onDragOver={handleLogoDragOver}
           onDragLeave={handleLogoDragLeave}
           onDrop={handleLogoDrop}
-          className={`rounded-lg border-2 border-dashed p-3 transition-colors ${
+          className={`relative rounded-lg border-2 border-dashed p-3 transition-colors ${
             logoDropActive
               ? "border-blue-400 bg-blue-500/10"
               : "border-white/15 bg-black/20"
           }`}
         >
+          {isLogoProcessing ? (
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-lg bg-black/55 backdrop-blur-sm">
+              <svg className="h-5 w-5 animate-spin text-blue-400" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+              </svg>
+              <p className="text-xs font-medium text-zinc-200">
+                {logoProcessingLabel ?? "Processing logo…"}
+              </p>
+            </div>
+          ) : null}
           <p className="mb-2 text-center text-xs text-zinc-500">
             Drop a logo here or choose a file
           </p>
@@ -396,6 +475,7 @@ export function ControlsPanel({
             type="file"
             accept="image/png,image/jpeg,image/jpg,image/svg+xml,.svg"
             onChange={handleLogoFile}
+            disabled={isLogoProcessing}
             className="w-full text-sm text-zinc-300 file:mr-3 file:rounded-md file:border-0 file:bg-blue-600 file:px-3 file:py-1.5 file:text-sm file:text-white hover:file:bg-blue-500"
           />
         </div>
@@ -404,13 +484,21 @@ export function ControlsPanel({
           <>
             {/* Logo preview — checkerboard behind it shows transparency */}
             <div
-              className="mx-auto h-20 w-20 overflow-hidden rounded-lg border border-white/10"
+              className="relative mx-auto h-20 w-20 overflow-hidden rounded-lg border border-white/10"
               style={{
                 backgroundImage:
                   "repeating-conic-gradient(#3f3f46 0% 25%, #27272a 0% 50%)",
                 backgroundSize: "12px 12px",
               }}
             >
+              {isLogoProcessing ? (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/55 backdrop-blur-sm">
+                  <svg className="h-5 w-5 animate-spin text-blue-400" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                  </svg>
+                </div>
+              ) : null}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={logoDataUrl}
@@ -422,23 +510,39 @@ export function ControlsPanel({
             <div className="flex items-center gap-2">
               <button
                 type="button"
+                disabled={isLogoProcessing}
                 onClick={() => onLogoPlacementModeChange(!isLogoPlacementMode)}
-                className={`flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition ${
+                className={`flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${
                   isLogoPlacementMode
                     ? "border-amber-400/60 bg-amber-400/15 text-amber-300 hover:bg-amber-400/25"
                     : "border-white/15 bg-white/5 text-zinc-300 hover:bg-white/10"
                 }`}
               >
-                {isLogoPlacementMode ? "✋ Drag logo to place — click to exit" : "🖱 Drag logo on model"}
+                {isLogoProcessing
+                  ? "Processing…"
+                  : isLogoPlacementMode
+                    ? "✋ Drag logo to place — click to exit"
+                    : "🖱 Drag logo on model"}
               </button>
               <button
                 type="button"
                 onClick={clearLogo}
-                className="text-xs text-red-400 hover:underline"
+                disabled={isLogoProcessing}
+                className="text-xs text-red-400 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Remove
               </button>
             </div>
+
+            {isLogoPlacementMode ? (
+              <div className="flex items-center justify-center gap-2 rounded-md border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-300 opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-300" />
+                </span>
+                Placement mode active — drag on the model
+              </div>
+            ) : null}
           </>
         ) : (
           <p className="text-xs text-zinc-500">

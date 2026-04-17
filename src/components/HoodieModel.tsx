@@ -204,6 +204,17 @@ function HoodieModelInner({
   const { texture: logoMap, loadGeneration: logoLoadGen, aspectRatio: logoAspect } =
     useLogoTexture(logoDataUrl);
 
+  useEffect(() => {
+    if (!logoMap) return;
+    // Improve perceived sharpness on angled surfaces / when zooming.
+    // (This does not invent detail; it reduces blur from sampling.)
+    logoMap.anisotropy = gl.capabilities.getMaxAnisotropy();
+    logoMap.minFilter = THREE.LinearFilter;
+    logoMap.magFilter = THREE.LinearFilter;
+    logoMap.generateMipmaps = false;
+    logoMap.needsUpdate = true;
+  }, [gl.capabilities, logoMap]);
+
   const decalGeoBBox = useMemo(() => {
     if (flatMeshes.length === 0) return null;
     const geo = flatMeshes[decalMeshIndex].geometry;

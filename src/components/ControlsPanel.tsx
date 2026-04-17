@@ -160,6 +160,8 @@ export function ControlsPanel({
   onCopyShare,
   captureElementId,
 }: ControlsPanelProps) {
+  void _color;
+  void _onColorChange;
   const fileRef = useRef<HTMLInputElement>(null);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [removeWhiteBg, setRemoveWhiteBg] = useState(true);

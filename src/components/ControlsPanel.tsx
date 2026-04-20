@@ -9,15 +9,16 @@ import type { LibraryItem, LibraryProduct } from "@/hooks/useConfiguratorState";
 // quickly look blurry. Share URLs can grow with higher-res data URLs; we still
 // warn users if the share link becomes too long.
 const LOGO_MAX_PX = 1024;
+const LOGO_MAX_PX_ENHANCED = 4096;
 
-async function compressLogoImage(dataUrl: string): Promise<string> {
+async function compressLogoImage(dataUrl: string, maxPx = LOGO_MAX_PX): Promise<string> {
   if (dataUrl.startsWith("data:image/svg")) return dataUrl;
 
   return new Promise<string>((resolve) => {
     const img = new Image();
     img.onload = () => {
       const longest = Math.max(img.naturalWidth, img.naturalHeight, 1);
-      const scale = Math.min(1, LOGO_MAX_PX / longest);
+      const scale = Math.min(1, maxPx / longest);
       const w = Math.max(1, Math.round(img.naturalWidth * scale));
       const h = Math.max(1, Math.round(img.naturalHeight * scale));
 
@@ -63,6 +64,28 @@ async function removeBackgroundViaApi(file: File): Promise<string> {
     throw new Error("remove-bg failed: invalid response payload");
   }
   return dataUrl;
+}
+
+async function enhanceLogoViaApi(dataUrl: string): Promise<string> {
+  if (dataUrl.startsWith("data:image/svg")) return dataUrl;
+
+  const res = await fetch("/api/enhance-logo", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dataUrl }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`enhance-logo failed: HTTP ${res.status}${text ? ` — ${text.slice(0, 200)}` : ""}`);
+  }
+
+  const json = (await res.json()) as { dataUrl?: unknown };
+  const next = typeof json?.dataUrl === "string" ? json.dataUrl : null;
+  if (!next || !next.startsWith("data:image/")) {
+    throw new Error("enhance-logo failed: invalid response payload");
+  }
+  return next;
 }
 
 /**
@@ -167,6 +190,7 @@ export function ControlsPanel({
   const fileRef = useRef<HTMLInputElement>(null);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [removeWhiteBg, setRemoveWhiteBg] = useState(true);
+  const [increaseLogoQuality, setIncreaseLogoQuality] = useState(false);
   const [isLogoProcessing, setIsLogoProcessing] = useState(false);
   const [logoProcessingLabel, setLogoProcessingLabel] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -211,12 +235,50 @@ export function ControlsPanel({
     setIsLogoProcessing(true);
     setLogoProcessingLabel("Optimizing logo…");
 
+    const maxPx = increaseLogoQuality ? LOGO_MAX_PX_ENHANCED : LOGO_MAX_PX;
+
     if (removeWhiteBg && !f.type.includes("svg")) {
-      // Prefer the background-removal API for best edges/transparency.
-      setLogoProcessingLabel("Removing background…");
-      removeBackgroundViaApi(f)
-        .then(compressLogoImage)
-        .then((result) => onLogoDataUrlChange(result))
+      // When both are enabled, do quality enhancement first (helps bg removal edges),
+      // then remove background, then compress for the decal texture.
+      setLogoProcessingLabel(increaseLogoQuality ? "Increasing logo quality…" : "Removing background…");
+      (async () => {
+        let dataUrl: string;
+
+        // Step 1: read the file
+        const reader = new FileReader();
+        dataUrl = await new Promise<string>((resolve, reject) => {
+          reader.onload = () => {
+            const res = reader.result;
+            if (typeof res === "string") resolve(res);
+            else reject(new Error("Invalid FileReader result"));
+          };
+          reader.onerror = () => reject(new Error("Failed to read file"));
+          reader.readAsDataURL(f);
+        });
+
+        // Step 2: enhance (optional)
+        if (increaseLogoQuality) {
+          setLogoProcessingLabel("Increasing logo quality…");
+          try {
+            dataUrl = await enhanceLogoViaApi(dataUrl);
+          } catch {
+            // If enhancement fails, continue with the original image.
+          }
+        }
+
+        // Step 3: remove background (prefer API; fallback to local)
+        setLogoProcessingLabel("Removing background…");
+        try {
+          // The remove-bg API expects a File; reuse the original upload.
+          dataUrl = await removeBackgroundViaApi(f);
+        } catch {
+          dataUrl = await removeWhiteBackground(dataUrl);
+        }
+
+        // Step 4: compress to keep decal texture size reasonable
+        const compressed = await compressLogoImage(dataUrl, maxPx);
+        onLogoDataUrlChange(compressed);
+      })()
         .catch(() => {
           // Fallback to local near-white removal if the API fails.
           setLogoProcessingLabel("Optimizing logo…");
@@ -225,7 +287,17 @@ export function ControlsPanel({
             const res = reader.result;
             if (typeof res !== "string") return;
             removeWhiteBackground(res)
-              .then(compressLogoImage)
+              .then(async (bgRemoved) => {
+                // Mirror the order: enhance first, then bg-remove (already done), then compress.
+                if (!increaseLogoQuality) return bgRemoved;
+                setLogoProcessingLabel("Increasing logo quality…");
+                try {
+                  return await enhanceLogoViaApi(bgRemoved);
+                } catch {
+                  return bgRemoved;
+                }
+              })
+              .then((result) => compressLogoImage(result, maxPx))
               .then((result) => onLogoDataUrlChange(result))
               .finally(() => {
                 setLogoProcessingLabel(null);
@@ -245,8 +317,20 @@ export function ControlsPanel({
     reader.onload = () => {
       const res = reader.result;
       if (typeof res !== "string") return;
-      compressLogoImage(res)
-        .then((result) => onLogoDataUrlChange(result))
+      (async () => {
+        let next = res;
+        if (increaseLogoQuality && !next.startsWith("data:image/svg")) {
+          setLogoProcessingLabel("Increasing logo quality…");
+          try {
+            next = await enhanceLogoViaApi(next);
+          } catch {
+            // If enhancement fails, fall back to original.
+            next = res;
+          }
+        }
+        const compressed = await compressLogoImage(next, maxPx);
+        onLogoDataUrlChange(compressed);
+      })()
         .finally(() => {
           setLogoProcessingLabel(null);
           setIsLogoProcessing(false);
@@ -430,21 +514,38 @@ export function ControlsPanel({
             Logo (PNG / JPG / SVG)
           </span>
           {/* Background removal toggle */}
-          <label className={`flex cursor-pointer items-center gap-1.5 text-xs text-zinc-400 select-none ${isLogoProcessing ? "opacity-60 pointer-events-none" : ""}`}>
-            <div
-              role="checkbox"
-              aria-checked={removeWhiteBg}
-              onClick={() => setRemoveWhiteBg((v) => !v)}
-              className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${removeWhiteBg ? "bg-blue-600" : "bg-zinc-600"
-                }`}
-            >
-              <span
-                className={`inline-block h-3 w-3 rounded-full bg-white shadow transition-transform ${removeWhiteBg ? "translate-x-3.5" : "translate-x-0.5"
+          <div className={`flex items-center gap-3 text-xs text-zinc-400 select-none ${isLogoProcessing ? "opacity-60 pointer-events-none" : ""}`}>
+            <label className="flex cursor-pointer items-center gap-1.5">
+              <div
+                role="checkbox"
+                aria-checked={increaseLogoQuality}
+                onClick={() => setIncreaseLogoQuality((v) => !v)}
+                className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${increaseLogoQuality ? "bg-blue-600" : "bg-zinc-600"
                   }`}
-              />
-            </div>
-            Remove white bg
-          </label>
+              >
+                <span
+                  className={`inline-block h-3 w-3 rounded-full bg-white shadow transition-transform ${increaseLogoQuality ? "translate-x-3.5" : "translate-x-0.5"
+                    }`}
+                />
+              </div>
+              Increase logo quality
+            </label>
+            <label className="flex cursor-pointer items-center gap-1.5">
+              <div
+                role="checkbox"
+                aria-checked={removeWhiteBg}
+                onClick={() => setRemoveWhiteBg((v) => !v)}
+                className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${removeWhiteBg ? "bg-blue-600" : "bg-zinc-600"
+                  }`}
+              >
+                <span
+                  className={`inline-block h-3 w-3 rounded-full bg-white shadow transition-transform ${removeWhiteBg ? "translate-x-3.5" : "translate-x-0.5"
+                    }`}
+                />
+              </div>
+              Remove white bg
+            </label>
+          </div>
         </div>
 
         <div

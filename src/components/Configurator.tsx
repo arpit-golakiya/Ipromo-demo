@@ -65,7 +65,11 @@ export default function Configurator({ shareId }: { shareId?: string }) {
 
   useEffect(() => {
     if (shareId) return;
-    syncModelIdFromUrl(searchParams.get("modelId"));
+    syncModelIdFromUrl({
+      modelId: searchParams.get("modelId"),
+      productName: searchParams.get("productName"),
+      productKey: searchParams.get("productKey"),
+    });
   }, [searchParams, shareId, syncModelIdFromUrl]);
 
   const onDecalChange = useCallback((next: DecalConfig) => {

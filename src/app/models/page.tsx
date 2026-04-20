@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
 type LibraryProduct = {
+  product_key?: string | null;
   product_name: string;
   preview_image_url: string | null;
   variants: Array<{
@@ -219,7 +220,11 @@ export default function AllProductsPage() {
                   </div>
                   <span className="min-w-0 flex-1 truncate text-xs text-zinc-100">{v.label}</span>
                   <Link
-                    href={`/?modelId=${encodeURIComponent(v.id)}`}
+                    href={`/?${new URLSearchParams({
+                      modelId: v.id,
+                      productName: `${p.product_name} — ${v.label}`,
+                      productKey: String(p.product_key ?? p.product_name),
+                    }).toString()}`}
                     className="rounded bg-indigo-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-indigo-500"
                   >
                     Load

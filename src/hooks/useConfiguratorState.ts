@@ -32,6 +32,17 @@ function parseModelId(raw: string | null): string | null {
   return id;
 }
 
+function parseLabel(raw: string | null, maxLen = 140): string | null {
+  if (raw == null) return null;
+  const s = raw
+    .replace(/[\u0000-\u001F\u007F]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!s) return null;
+  if (s.length > maxLen) return s.slice(0, maxLen).trim();
+  return s;
+}
+
 function parseColor(param: string | null): string | null {
   if (!param) return null;
   const hex = param.startsWith("#") ? param : `#${param}`;
@@ -110,6 +121,11 @@ export function useConfiguratorState() {
 
     const c = parseColor(sp.get("c"));
     if (c) setColor(c);
+
+    const urlProductName = parseLabel(sp.get("productName"));
+    if (urlProductName) setProductName(urlProductName);
+    const urlProductKey = parseLabel(sp.get("productKey"), 200);
+    if (urlProductKey) setProductKey(urlProductKey);
 
     const mid = parseModelId(sp.get("modelId"));
     if (mid) setSelectedModelId(mid);
@@ -231,9 +247,17 @@ export function useConfiguratorState() {
     ? `/api/library/model?id=${encodeURIComponent(selectedModelId)}`
     : null;
 
-  const syncModelIdFromUrl = useCallback((rawModelId: string | null) => {
-    setSelectedModelId(parseModelId(rawModelId));
-  }, []);
+  const syncFromUrlParams = useCallback(
+    (params: { modelId: string | null; productName?: string | null; productKey?: string | null }) => {
+      const mid = parseModelId(params.modelId);
+      setSelectedModelId(mid);
+      const urlProductName = parseLabel(params.productName ?? null);
+      if (urlProductName) setProductName(urlProductName);
+      const urlProductKey = parseLabel(params.productKey ?? null, 200);
+      if (urlProductKey) setProductKey(urlProductKey);
+    },
+    [],
+  );
 
   const searchLibrary = useCallback(async (q: string) => {
     setLibraryQuery(q);
@@ -356,7 +380,7 @@ export function useConfiguratorState() {
     copyShareLink,
     buildQueryString,
     loadFromShareId,
-    syncModelIdFromUrl,
+    syncModelIdFromUrl: syncFromUrlParams,
   };
 }
 

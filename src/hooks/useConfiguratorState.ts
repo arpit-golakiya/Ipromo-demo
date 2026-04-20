@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_DECAL, type DecalConfig } from "@/types/configurator";
 
 const DEFAULT_PRODUCT_NAME = "Select a product";
+const DEFAULT_LIBRARY_QUERY = "Paxton Sweatshirt";
 
 export type LibraryItem = {
   id: string;
@@ -78,7 +79,8 @@ function readDecalFromParams(sp: URLSearchParams): DecalConfig {
   };
 }
 
-export function useConfiguratorState() {
+export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: boolean }) {
+  const disableInitialLibrarySearch = Boolean(opts?.disableInitialLibrarySearch);
   const [color, setColor] = useState("#ffffff");
   const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null);
   const [decal, setDecal] = useState<DecalConfig>(DEFAULT_DECAL);
@@ -101,6 +103,8 @@ export function useConfiguratorState() {
   const hydratedFromUrl = useRef(false);
   const hydratedFromShare = useRef(false);
   const [isHydratingFromShare, setIsHydratingFromShare] = useState(false);
+  const didInitialLibrarySearch = useRef(false);
+  const didAutoSelectFirstVariant = useRef(false);
 
   const setLogoDataUrlWithReset = useCallback((url: string | null) => {
     setLogoDataUrl(url);
@@ -259,8 +263,8 @@ export function useConfiguratorState() {
     [],
   );
 
-  const searchLibrary = useCallback(async (q: string) => {
-    setLibraryQuery(q);
+  const fetchLibrary = useCallback(async (q: string, opts?: { setQuery?: boolean }) => {
+    if (opts?.setQuery !== false) setLibraryQuery(q);
     setIsLoadingLibrary(true);
     setLibraryError(null);
     try {
@@ -316,6 +320,41 @@ export function useConfiguratorState() {
       setIsLoadingLibrary(false);
     }
   }, []);
+
+  const searchLibrary = useCallback(async (q: string) => {
+    await fetchLibrary(q, { setQuery: true });
+  }, [fetchLibrary]);
+
+  // Initial library search: load default product presets on first visit.
+  // Skip if a model is already selected (from URL/share).
+  useEffect(() => {
+    if (didInitialLibrarySearch.current) return;
+    if (typeof window === "undefined") return;
+    if (disableInitialLibrarySearch) return;
+    if (isHydratingFromShare) return;
+    if (selectedModelId) return;
+    didInitialLibrarySearch.current = true;
+    // Load defaults, but keep the search field empty.
+    void fetchLibrary(DEFAULT_LIBRARY_QUERY, { setQuery: false });
+  }, [disableInitialLibrarySearch, fetchLibrary, isHydratingFromShare, selectedModelId]);
+
+  // Auto-select the first returned variant so the GLB loads by default.
+  useEffect(() => {
+    if (didAutoSelectFirstVariant.current) return;
+    if (isHydratingFromShare) return;
+    if (selectedModelId) return;
+    const firstProduct = libraryProducts[0];
+    const firstVariant = firstProduct?.variants?.[0];
+    if (!firstProduct || !firstVariant) return;
+
+    didAutoSelectFirstVariant.current = true;
+    setSelectedModelId(firstVariant.id);
+    setProductName(`${firstProduct.product_name} — ${firstVariant.label}` || DEFAULT_PRODUCT_NAME);
+    const pk =
+      (typeof firstProduct.product_key === "string" ? firstProduct.product_key : null) ??
+      firstProduct.product_name;
+    setProductKey(pk ? pk : null);
+  }, [isHydratingFromShare, libraryProducts, selectedModelId]);
 
   const selectModel = useCallback((item: LibraryItem | null) => {
     if (!item) {

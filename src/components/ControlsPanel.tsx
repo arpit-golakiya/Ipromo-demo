@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { DecalConfig } from "@/types/configurator";
 import { downloadConfiguratorPdf } from "@/lib/pdfExport";
 import type { LibraryItem, LibraryProduct } from "@/hooks/useConfiguratorState";
@@ -172,6 +172,10 @@ export function ControlsPanel({
   const [copied, setCopied] = useState(false);
   const [logoDropActive, setLogoDropActive] = useState(false);
   const [localQuery, setLocalQuery] = useState(libraryQuery);
+
+  useEffect(() => {
+    setLocalQuery(libraryQuery);
+  }, [libraryQuery]);
 
   // Modern browsers handle URLs up to ~100 KB without issues.
   // Logos are compressed to 256 px on upload, so this is only triggered by

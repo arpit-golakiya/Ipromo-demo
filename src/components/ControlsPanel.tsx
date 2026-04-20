@@ -44,9 +44,29 @@ async function compressLogoImage(dataUrl: string, maxPx = LOGO_MAX_PX): Promise<
   });
 }
 
-async function removeBackgroundViaApi(file: File): Promise<string> {
+function dataUrlToBlob(dataUrl: string): { blob: Blob; mime: string } {
+  const match = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.*)$/);
+  if (!match) {
+    // Fallback: treat as png; let downstream fail gracefully if invalid.
+    return { blob: new Blob([], { type: "image/png" }), mime: "image/png" };
+  }
+  const mime = match[1] ?? "image/png";
+  const b64 = (match[2] ?? "").replace(/\s+/g, "");
+  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  return { blob: new Blob([bytes], { type: mime }), mime };
+}
+
+function dataUrlToFile(dataUrl: string, fallbackName: string): File {
+  const { blob, mime } = dataUrlToBlob(dataUrl);
+  const ext =
+    mime.includes("png") ? "png" : mime.includes("webp") ? "webp" : mime.includes("jpeg") ? "jpg" : "png";
+  const name = fallbackName.replace(/\.[a-z0-9]+$/i, "") + `.${ext}`;
+  return new File([blob], name, { type: mime });
+}
+
+async function removeBackgroundViaApi(file: Blob, filename = "logo.png"): Promise<string> {
   const form = new FormData();
-  form.set("image", file, file.name || "logo.png");
+  form.set("image", file, filename);
 
   const res = await fetch("/api/remove-bg", {
     method: "POST",
@@ -257,10 +277,12 @@ export function ControlsPanel({
         });
 
         // Step 2: enhance (optional)
+        let enhancedFile: File | null = null;
         if (increaseLogoQuality) {
           setLogoProcessingLabel("Increasing logo quality…");
           try {
             dataUrl = await enhanceLogoViaApi(dataUrl);
+            enhancedFile = dataUrlToFile(dataUrl, f.name || "logo");
           } catch {
             // If enhancement fails, continue with the original image.
           }
@@ -269,8 +291,10 @@ export function ControlsPanel({
         // Step 3: remove background (prefer API; fallback to local)
         setLogoProcessingLabel("Removing background…");
         try {
-          // The remove-bg API expects a File; reuse the original upload.
-          dataUrl = await removeBackgroundViaApi(f);
+          // Pass the enhanced image when available; otherwise use the original upload.
+          const blobToSend = enhancedFile ?? f;
+          const nameToSend = enhancedFile?.name ?? (f.name || "logo.png");
+          dataUrl = await removeBackgroundViaApi(blobToSend, nameToSend);
         } catch {
           dataUrl = await removeWhiteBackground(dataUrl);
         }

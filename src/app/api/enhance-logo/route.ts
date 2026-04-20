@@ -1,5 +1,8 @@
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import crypto from "node:crypto";
 
 export const runtime = "nodejs";
 
@@ -24,20 +27,26 @@ function toDataUrl(buffer: Buffer, contentType: string): string {
 
 const ENHANCE_LOGO_MODEL = "gpt-5";
 
-const ENHANCE_LOGO_PROMPT = `You are an expert logo upscaling and enhancement service.
+const ENHANCE_LOGO_PROMPT = `You are an expert logo restoration + super-resolution service.
 
-TASK:
-Improve the quality of the given logo image while preserving the original EXACTLY.
+GOAL:
+Increase the apparent resolution and clarity of this logo so it looks crisp when used as a decal/texture in a 3D viewer.
 
-STRICT REQUIREMENTS (DO NOT VIOLATE):
-- Do NOT change the logo design, shapes, layout, alignment, spacing, or proportions
-- Do NOT change any text content, letterforms, kerning, or font appearance
-- Do NOT change colors (no hue shift), contrast, or add effects
-- Do NOT add or remove any elements
-- Preserve transparency exactly if present
+ABSOLUTE RULES (MUST FOLLOW):
+- Preserve the logo IDENTICALLY: same design, geometry, layout, alignment, spacing, proportions
+- Preserve ALL text exactly (no re-typing, no font substitution, no kerning changes)
+- Preserve colors exactly (no hue/contrast shifts, no new gradients, no glow/shadow)
+- Do not add/remove elements, do not stylize, do not "improve" the design
+- If the input has transparency, keep the same transparent background (do not add a solid background)
+
+WHAT TO IMPROVE (DO THESE):
+- Remove JPEG artifacts, banding, and pixelation
+- Reconstruct sharp, clean edges (vector-like where appropriate) WITHOUT changing shapes
+- Increase usable resolution significantly (aim for a much larger output than input)
+- Keep edges clean: no halos, no ringing, no over-sharpening, no blur
 
 OUTPUT:
-- Return a single high-quality PNG 4K resolution`;
+- Return exactly ONE high-quality PNG of the same logo (high resolution).`;
 
 function pickGeneratedImageBase64(response: JsonValue): string | null {
   // Matches the pattern used in Ipromo-demo-frontend: Responses API output includes
@@ -55,6 +64,22 @@ function pickGeneratedImageBase64(response: JsonValue): string | null {
     }
   }
   return null;
+}
+
+async function saveEnhancedPngLocally(pngBase64: string): Promise<{ absPath: string; publicUrl: string }> {
+  const safeB64 = pngBase64.replace(/\s+/g, "");
+  const buffer = Buffer.from(safeB64, "base64");
+  if (buffer.length < 50) throw new Error("Invalid PNG payload");
+
+  const dir = path.join(process.cwd(), "public", "enhanced-logos");
+  await mkdir(dir, { recursive: true });
+
+  const id = typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+  const filename = `enhanced-${new Date().toISOString().replace(/[:.]/g, "-")}-${id}.png`;
+  const absPath = path.join(dir, filename);
+  await writeFile(absPath, buffer);
+
+  return { absPath, publicUrl: `/enhanced-logos/${encodeURIComponent(filename)}` };
 }
 
 export async function POST(req: Request) {
@@ -143,7 +168,18 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Enhanced image too large to return" }, { status: 502 });
     }
 
-    return NextResponse.json({ dataUrl: `data:image/png;base64,${b64}` });
+    // Store locally (dev convenience). On serverless platforms, disk may be ephemeral.
+    let saved: { absPath: string; publicUrl: string } | null = null;
+    try {
+      saved = await saveEnhancedPngLocally(b64);
+    } catch {
+      saved = null;
+    }
+
+    return NextResponse.json({
+      dataUrl: `data:image/png;base64,${b64}`,
+      ...(saved ? { savedPath: saved.absPath, publicUrl: saved.publicUrl } : {}),
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "OpenAI request failed";
     return NextResponse.json({ error: msg }, { status: 502 });

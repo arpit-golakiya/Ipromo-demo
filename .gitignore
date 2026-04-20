@@ -15,6 +15,9 @@
 /.next/
 /out/
 
+# generated images (local dev)
+/public/enhanced-logos/
+
 # production
 /build
 

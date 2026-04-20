@@ -528,7 +528,7 @@ export function ControlsPanel({
                     }`}
                 />
               </div>
-              Increase logo quality
+              Enhance logo quality
             </label>
             <label className="flex cursor-pointer items-center gap-1.5">
               <div

@@ -18,6 +18,12 @@
 # generated images (local dev)
 /public/enhanced-logos/
 
+# downloaded GLBs (local dev)
+/glb_downloads/
+
+# generated manifests / local logs
+/s3_manifest*.csv
+
 # production
 /build
 

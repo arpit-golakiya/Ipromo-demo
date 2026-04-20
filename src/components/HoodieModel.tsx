@@ -15,7 +15,7 @@ import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import type { DecalConfig } from "@/types/configurator";
 
 export const HOODIE_MODEL_PATH =
-  "/models/tshirt_multiple.glb";
+  "/models/base_basic_pbr.glb";
 
 type FlatMesh = {
   uuid: string;

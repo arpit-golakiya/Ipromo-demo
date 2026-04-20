@@ -388,11 +388,10 @@ export function ControlsPanel({
                         key={v.id}
                         type="button"
                         onClick={() => onSelectModel(item)}
-                        className={`flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs transition ${
-                          active
+                        className={`flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs transition ${active
                             ? "border-indigo-500/50 bg-indigo-950/40 text-indigo-100"
                             : "border-white/10 bg-black/25 text-zinc-200 hover:border-white/20 hover:bg-black/35"
-                        }`}
+                          }`}
                       >
                         <div className="h-7 w-7 shrink-0 overflow-hidden rounded bg-black/30">
                           {v.image_url ? (
@@ -432,14 +431,12 @@ export function ControlsPanel({
               role="checkbox"
               aria-checked={removeWhiteBg}
               onClick={() => setRemoveWhiteBg((v) => !v)}
-              className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${
-                removeWhiteBg ? "bg-blue-600" : "bg-zinc-600"
-              }`}
+              className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${removeWhiteBg ? "bg-blue-600" : "bg-zinc-600"
+                }`}
             >
               <span
-                className={`inline-block h-3 w-3 rounded-full bg-white shadow transition-transform ${
-                  removeWhiteBg ? "translate-x-3.5" : "translate-x-0.5"
-                }`}
+                className={`inline-block h-3 w-3 rounded-full bg-white shadow transition-transform ${removeWhiteBg ? "translate-x-3.5" : "translate-x-0.5"
+                  }`}
               />
             </div>
             Remove white bg
@@ -450,11 +447,10 @@ export function ControlsPanel({
           onDragOver={handleLogoDragOver}
           onDragLeave={handleLogoDragLeave}
           onDrop={handleLogoDrop}
-          className={`relative rounded-lg border-2 border-dashed p-3 transition-colors ${
-            logoDropActive
+          className={`relative rounded-lg border-2 border-dashed p-3 transition-colors ${logoDropActive
               ? "border-blue-400 bg-blue-500/10"
               : "border-white/15 bg-black/20"
-          }`}
+            }`}
         >
           {isLogoProcessing ? (
             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-lg bg-black/55 backdrop-blur-sm">
@@ -512,11 +508,10 @@ export function ControlsPanel({
                 type="button"
                 disabled={isLogoProcessing}
                 onClick={() => onLogoPlacementModeChange(!isLogoPlacementMode)}
-                className={`flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                  isLogoPlacementMode
+                className={`flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${isLogoPlacementMode
                     ? "border-amber-400/60 bg-amber-400/15 text-amber-300 hover:bg-amber-400/25"
                     : "border-white/15 bg-white/5 text-zinc-300 hover:bg-white/10"
-                }`}
+                  }`}
               >
                 {isLogoProcessing
                   ? "Processing…"
@@ -554,9 +549,6 @@ export function ControlsPanel({
       </div>
 
       <div className="flex flex-col gap-3 rounded-lg border border-white/5 bg-black/20 p-3">
-        <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-          Logo on chest (decal)
-        </span>
         <p className="text-xs text-zinc-500">
           Hold and drag on the product to move the logo. Use the sliders to
           adjust rotation and size.

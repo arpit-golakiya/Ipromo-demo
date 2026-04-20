@@ -38,10 +38,10 @@ export default function AllProductsPage() {
   const fetchPage = async (opts: { q: string; cursor: string | null; append: boolean }) => {
     const url = new URL("/api/library", window.location.origin);
     url.searchParams.set("q", opts.q);
-    url.searchParams.set("pageSize", "5");
+    url.searchParams.set("pageSize", "12");
     if (opts.cursor) url.searchParams.set("cursor", opts.cursor);
 
-    const res = await fetch(url.toString(), { cache: "no-store" });
+    const res = await fetch(url.toString());
     const data: LibraryResponse = await res.json().catch(() => ({}));
     if (!res.ok || !Array.isArray(data.products)) {
       throw new Error(data?.error ?? "Failed to load products");

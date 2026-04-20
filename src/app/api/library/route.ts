@@ -5,6 +5,33 @@ const TABLE = "preloaded_models";
 
 type Cursor = { createdAt: string; id: string };
 
+// ---------------------------------------------------------------------------
+// In-memory response cache — avoids hitting Supabase on every page load.
+// TTL: 60 s, max 200 distinct cache keys.
+// ---------------------------------------------------------------------------
+type CacheEntry = { body: string; expires: number };
+const responseCache = new Map<string, CacheEntry>();
+const CACHE_TTL_MS = 60_000;
+
+function getCached(key: string): string | null {
+  const entry = responseCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expires) {
+    responseCache.delete(key);
+    return null;
+  }
+  return entry.body;
+}
+
+function setCached(key: string, body: string): void {
+  if (responseCache.size >= 200) {
+    // Evict the oldest entry (insertion-order Map).
+    const oldest = responseCache.keys().next().value;
+    if (oldest !== undefined) responseCache.delete(oldest);
+  }
+  responseCache.set(key, { body, expires: Date.now() + CACHE_TTL_MS });
+}
+
 function parsePositiveInt(v: string | null, fallback: number, min: number, max: number): number {
   const n = Number(v ?? "");
   if (!Number.isFinite(n)) return fallback;
@@ -32,17 +59,34 @@ export async function GET(req: NextRequest) {
   const q = (req.nextUrl.searchParams.get("q") ?? "").trim();
   // Product pagination: return N *products* per page, not N raw rows.
   const pageSize = parsePositiveInt(req.nextUrl.searchParams.get("pageSize"), 5, 1, 50);
-  const cursor = decodeCursor(req.nextUrl.searchParams.get("cursor"));
+  const rawCursor = req.nextUrl.searchParams.get("cursor");
+  const cursor = decodeCursor(rawCursor);
+
+  // Serve from cache when available.
+  const cacheKey = `${q}|${pageSize}|${rawCursor ?? ""}`;
+  const cached = getCached(cacheKey);
+  if (cached) {
+    return new NextResponse(cached, {
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60",
+        "X-Cache": "HIT",
+      },
+    });
+  }
 
   try {
     const supabase = createServerSupabaseAdminClient();
-    // We may need to read more raw rows than pageSize, because each product can have many variants.
-    // Keep this bounded to avoid huge responses.
-    const rowLimit = Math.min(Math.max(pageSize * 80, 200), 2000);
+    // Fetch enough rows to fill pageSize products. Assumes ≤25 variants per product on
+    // average; capped at 500 to avoid huge payloads. Previously this was pageSize*80 (400
+    // rows for 5 products), which was the main cause of 5 s first-load times.
+    const rowLimit = Math.min(Math.max(pageSize * 25, 100), 500);
 
     let query = supabase
       .from(TABLE)
-      .select("id,product_name,product_key,color_label,image_url,glb_url,created_at")
+      // glb_url is intentionally omitted from SELECT — it's only needed for the null
+      // filter below and is never returned to the client.
+      .select("id,product_name,product_key,color_label,image_url,created_at")
       .not("glb_url", "is", null)
       .order("created_at", { ascending: false })
       .order("id", { ascending: false })
@@ -65,15 +109,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: error.message ?? "Failed to search library" }, { status: 502 });
     }
 
-    const rows = (data ?? []).filter(
-      (row) => row && typeof (row as { glb_url?: unknown }).glb_url === "string",
-    ) as Array<{
+    const rows = (data ?? []) as Array<{
       id: string | number;
       product_name: string | null;
       product_key?: string | null;
       color_label: string | null;
       image_url: string | null;
-      glb_url: string | null;
       created_at: string | null;
     }>;
 
@@ -96,8 +137,7 @@ export async function GET(req: NextRequest) {
 
     for (const row of rows) {
       const productName = String(row.product_name ?? "").trim();
-      const glbUrl = String(row.glb_url ?? "").trim();
-      if (!productName || !glbUrl) continue;
+      if (!productName) continue;
 
       const productKey =
         (typeof row.product_key === "string" ? row.product_key : null) ?? productName;
@@ -163,7 +203,16 @@ export async function GET(req: NextRequest) {
           ? encodeCursor({ createdAt: lastIncludedRow.created_at, id: lastIncludedRow.id })
           : null;
 
-    return NextResponse.json({ products, items, nextCursor });
+    const responseBody = JSON.stringify({ products, items, nextCursor });
+    setCached(cacheKey, responseBody);
+
+    return new NextResponse(responseBody, {
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60",
+        "X-Cache": "MISS",
+      },
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: msg }, { status: 500 });

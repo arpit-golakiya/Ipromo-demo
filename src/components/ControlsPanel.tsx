@@ -612,13 +612,6 @@ export function ControlsPanel({
         >
           {copied ? "Copied!" : "Copy share link"}
         </button>
-        {shareTooLong ? (
-          <p className="text-xs text-amber-400">
-            Logo is very large even after compression. The share link may not
-            open correctly on all browsers — use &quot;Download PDF&quot; to
-            share instead.
-          </p>
-        ) : null}
         <button
           type="button"
           onClick={() => void handlePdf()}

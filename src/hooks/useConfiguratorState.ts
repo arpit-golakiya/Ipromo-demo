@@ -83,9 +83,13 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
   const disableInitialLibrarySearch = Boolean(opts?.disableInitialLibrarySearch);
   const [color, setColor] = useState("#ffffff");
   const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null);
-  const [decal, setDecal] = useState<DecalConfig>(DEFAULT_DECAL);
+  const [decal, setDecalState] = useState<DecalConfig>(DEFAULT_DECAL);
   const [isLogoPlacementMode, setIsLogoPlacementMode] = useState(false);
   const [decalPreset, setDecalPreset] = useState<DecalConfig | null>(null);
+
+  type DecalSource = "default" | "preset" | "url" | "share" | "user";
+  // Tracks which system last set `decal`, so we can avoid overwriting explicit share/url/user placement.
+  const decalSource = useRef<DecalSource>("default");
 
   const [productName, setProductName] = useState(DEFAULT_PRODUCT_NAME);
   const [productKey, setProductKey] = useState<string | null>(null);
@@ -113,10 +117,29 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
       setIsLogoPlacementMode(false);
       return;
     }
-    // If we have a saved preset for the currently-selected model, use it.
-    // Otherwise fall back to the default placement.
-    setDecal(decalPreset ?? DEFAULT_DECAL);
+    // If the user already has an explicit placement (from a share link, URL, or manual move),
+    // don't overwrite it just because a logo was added/changed.
+    if (
+      decalSource.current === "share" ||
+      decalSource.current === "url" ||
+      decalSource.current === "user"
+    ) {
+      return;
+    }
+    // Otherwise: if we have a saved preset for the selected model, use it; else default.
+    if (decalPreset) {
+      decalSource.current = "preset";
+      setDecalState(decalPreset);
+    } else {
+      decalSource.current = "default";
+      setDecalState(DEFAULT_DECAL);
+    }
   }, [decalPreset]);
+
+  const setDecal = useCallback((next: DecalConfig) => {
+    decalSource.current = "user";
+    setDecalState(next);
+  }, []);
 
   useEffect(() => {
     if (hydratedFromUrl.current) return;
@@ -138,7 +161,10 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
     const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
     const logo = hashParams.get("logo") ?? sp.get("logo");
     if (logo && logo.startsWith("data:image")) setLogoDataUrl(logo);
-    if (hasDecalParams(sp)) setDecal(readDecalFromParams(sp));
+    if (hasDecalParams(sp)) {
+      decalSource.current = "url";
+      setDecalState(readDecalFromParams(sp));
+    }
   }, []);
 
   // Load preset for the selected model id (if any). If a logo is already present,
@@ -173,7 +199,16 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
         }
         const preset = data.decal ?? null;
         setDecalPreset(preset);
-        if (preset && logoDataUrl) setDecal(preset);
+        // Only auto-apply presets when the decal hasn't been explicitly set via
+        // share link / URL params / user interaction.
+        if (
+          preset &&
+          logoDataUrl &&
+          (decalSource.current === "default" || decalSource.current === "preset")
+        ) {
+          decalSource.current = "preset";
+          setDecalState(preset);
+        }
       } catch {
         if (cancelled) return;
         setDecalPreset(null);
@@ -209,7 +244,10 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
       setProductName(p.productName || DEFAULT_PRODUCT_NAME);
       setProductKey(null);
       if (p.color) setColor(p.color);
-      if (p.decal) setDecal(p.decal);
+      if (p.decal) {
+        decalSource.current = "share";
+        setDecalState(p.decal);
+      }
       setSelectedModelId(parseModelId(p.modelId));
       if (p.logoDataUrl && p.logoDataUrl.startsWith("data:image")) setLogoDataUrl(p.logoDataUrl);
     } catch {

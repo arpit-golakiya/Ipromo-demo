@@ -105,6 +105,7 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
   const [isHydratingFromShare, setIsHydratingFromShare] = useState(false);
   const didInitialLibrarySearch = useRef(false);
   const didAutoSelectFirstVariant = useRef(false);
+  const lastLibraryFetchKey = useRef<string | null>(null);
 
   const setLogoDataUrlWithReset = useCallback((url: string | null) => {
     setLogoDataUrl(url);
@@ -324,6 +325,35 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
   const searchLibrary = useCallback(async (q: string) => {
     await fetchLibrary(q, { setQuery: true });
   }, [fetchLibrary]);
+
+  // When arriving from "All Products" (or any deep link) we already have
+  // `modelId` + `productName/productKey` in the URL. In that case, we should
+  // fetch the library for that product so the sidebar shows the correct
+  // variant/color options (instead of whatever defaults were last searched).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (disableInitialLibrarySearch) return;
+    if (isHydratingFromShare) return;
+    if (!selectedModelId) return;
+
+    const baseName = (() => {
+      const raw = productName || "";
+      const parts = raw.split("—");
+      const left = (parts[0] ?? "").trim();
+      return left && left !== DEFAULT_PRODUCT_NAME ? left : null;
+    })();
+
+    const query =
+      baseName ??
+      ((typeof productKey === "string" && productKey.trim() ? productKey.trim() : null));
+
+    if (!query) return;
+    if (lastLibraryFetchKey.current === query) return;
+    lastLibraryFetchKey.current = query;
+
+    // Populate `libraryProducts` without overwriting the search field.
+    void fetchLibrary(query, { setQuery: false });
+  }, [disableInitialLibrarySearch, fetchLibrary, isHydratingFromShare, productKey, productName, selectedModelId]);
 
   // Initial library search: load default product presets on first visit.
   // Skip if a model is already selected (from URL/share).

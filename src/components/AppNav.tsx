@@ -9,19 +9,12 @@ export function AppNav() {
   // Keep shared links clean and read-only.
   if (pathname?.startsWith("/s/")) return null;
 
-  const itemClass = (active: boolean) =>
-    `rounded-md px-3 py-1.5 text-sm transition ${
-      active ? "bg-indigo-600 text-white" : "text-zinc-300 hover:bg-white/10 hover:text-white"
-    }`;
+  // const itemClass = (active: boolean) =>
+  //   `rounded-md px-3 py-1.5 text-sm transition ${active ? "bg-indigo-600 text-white" : "text-zinc-300 hover:bg-white/10 hover:text-white"
+  //   }`;
 
-  const primaryPillClass = (active: boolean) =>
-    `rounded-md px-3 py-1.5 text-sm font-medium transition ${
-      active ? "bg-indigo-600 text-white" : "bg-indigo-600 text-white hover:bg-indigo-500"
-    }`;
-
-  const secondaryPillClass = (active: boolean) =>
-    `rounded-md px-3 py-1.5 text-sm font-medium transition ${
-      active ? "bg-white text-zinc-900" : "bg-white text-zinc-900 hover:bg-zinc-100"
+  const routeClass = (active: boolean) =>
+    `rounded-md px-3 py-1.5 text-sm font-medium transition ${active ? "bg-indigo-600 text-white" : "text-white hover:bg-white/20 bg-white/10"
     }`;
 
   return (
@@ -36,18 +29,18 @@ export function AppNav() {
           </Link>
           <Link
             href="/models"
-            className={primaryPillClass(pathname?.startsWith("/models") ?? false)}
+            className={routeClass(pathname?.startsWith("/models") ?? false)}
           >
             All Products
           </Link>
-          <Link href="/" className={secondaryPillClass(pathname === "/")}>
+          <Link href="/" className={routeClass(pathname === "/")}>
             Design
           </Link>
         </div>
         <div className="flex items-center gap-1">
           <Link
             href="/feedback"
-            className={itemClass(pathname?.startsWith("/feedback") ?? false)}
+            className={routeClass(pathname?.startsWith("/feedback") ?? false)}
           >
             Submit Feedback
           </Link>

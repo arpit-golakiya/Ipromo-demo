@@ -24,12 +24,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className="h-full">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} flex h-full min-h-dvh flex-col antialiased md:h-dvh`}
       >
         <AppNav />
-        {children}
+        <div className="flex-1 min-h-0">{children}</div>
       </body>
     </html>
   );

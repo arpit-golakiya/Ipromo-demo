@@ -76,9 +76,9 @@ export default function Configurator({ shareId }: { shareId?: string }) {
   }, [setDecal]);
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-[1600px] flex-col gap-4 p-3 sm:p-4 md:flex-row md:gap-6 md:p-6">
+    <main className="mx-auto flex w-full max-w-[1600px] flex-1 min-h-0 flex-col gap-4 p-3 sm:p-4 md:h-full md:flex-row md:gap-6 md:p-6">
       {!isSharedView ? (
-        <div className="w-full shrink-0 md:w-[380px]">
+        <div className="w-full shrink-0 md:h-full md:min-h-0 md:w-[380px]">
           <ControlsPanel
             productName={productName}
             productKey={productKey}
@@ -101,7 +101,7 @@ export default function Configurator({ shareId }: { shareId?: string }) {
           />
         </div>
       ) : null}
-      <div className="flex min-h-0 w-full flex-col max-md:h-[min(52dvh,580px)] max-md:min-h-[280px] max-md:flex-shrink-0 md:min-h-[min(70vh,720px)] md:flex-1">
+      <div className="flex min-h-0 w-full flex-1 flex-col md:h-full">
         <ModelViewer
           captureId={CAPTURE_ID}
           title={productName}

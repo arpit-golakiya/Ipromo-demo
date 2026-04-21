@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+:root,
+html,
+body {
+  height: 100%;
+}
+
 :root {
   --background: #0f1419;
   --foreground: #e8eaed;
@@ -10,5 +16,11 @@
 body {
   color: var(--foreground);
   background: var(--background);
-  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+@media (min-width: 768px) {
+  body {
+    overflow: hidden;
+  }
 }

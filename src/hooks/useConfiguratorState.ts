@@ -107,9 +107,10 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
   const hydratedFromUrl = useRef(false);
   const hydratedFromShare = useRef(false);
   const [isHydratingFromShare, setIsHydratingFromShare] = useState(false);
-  const didInitialLibrarySearch = useRef(false);
   const didAutoSelectFirstVariant = useRef(false);
   const lastLibraryFetchKey = useRef<string | null>(null);
+  const libraryFetchSeq = useRef(0);
+  const activeLibraryFetchSeq = useRef(0);
 
   const setLogoDataUrlWithReset = useCallback((url: string | null) => {
     setLogoDataUrl(url);
@@ -281,16 +282,13 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
     return href;
   }, [buildQueryString, logoDataUrl]);
 
-  const shareUrl = useMemo(() => {
-    if (typeof window === "undefined") return "";
-    return buildShareHref();
-  }, [buildShareHref]);
-
   const modelUrl = selectedModelId
     ? `/api/library/model?id=${encodeURIComponent(selectedModelId)}`
     : null;
 
   const fetchLibrary = useCallback(async (q: string, opts?: { setQuery?: boolean }) => {
+    const fetchSeq = ++libraryFetchSeq.current;
+    activeLibraryFetchSeq.current = fetchSeq;
     if (opts?.setQuery !== false) setLibraryQuery(q);
     setIsLoadingLibrary(true);
     setLibraryError(null);
@@ -300,6 +298,7 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
       });
       const data: { products?: LibraryProduct[]; items?: LibraryItem[]; error?: string } =
         await res.json();
+      if (activeLibraryFetchSeq.current !== fetchSeq) return;
       if (!res.ok) {
         setLibraryError(data.error ?? "Failed to load library");
         setLibraryProducts([]);
@@ -341,10 +340,11 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
       setLibraryError(data.error ?? "Failed to load library");
       setLibraryProducts([]);
     } catch {
+      if (activeLibraryFetchSeq.current !== fetchSeq) return;
       setLibraryError("Failed to load library");
       setLibraryProducts([]);
     } finally {
-      setIsLoadingLibrary(false);
+      if (activeLibraryFetchSeq.current === fetchSeq) setIsLoadingLibrary(false);
     }
   }, []);
 
@@ -365,7 +365,12 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
         return left && left !== DEFAULT_PRODUCT_NAME ? left : null;
       })();
       const query = baseName ?? (urlProductKey && urlProductKey.trim() ? urlProductKey.trim() : null);
-      if (!query) return;
+      if (!query) {
+        if (lastLibraryFetchKey.current === DEFAULT_LIBRARY_QUERY) return;
+        lastLibraryFetchKey.current = DEFAULT_LIBRARY_QUERY;
+        void fetchLibrary(DEFAULT_LIBRARY_QUERY, { setQuery: false });
+        return;
+      }
       if (lastLibraryFetchKey.current === query) return;
       lastLibraryFetchKey.current = query;
 
@@ -376,6 +381,10 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
   );
 
   const searchLibrary = useCallback(async (q: string) => {
+    // Reset the URL-driven fetch key so that if the user later navigates back
+    // to a URL product, syncFromUrlParams can re-fetch without being blocked
+    // by the stale dedup key.
+    lastLibraryFetchKey.current = q;
     await fetchLibrary(q, { setQuery: true });
   }, [fetchLibrary]);
 
@@ -402,24 +411,14 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
 
     if (!query) return;
     if (lastLibraryFetchKey.current === query) return;
+    // If the user has typed a different search query, don't silently overwrite
+    // their results — wait until they clear the search or the URL product matches.
+    if (libraryQuery && libraryQuery !== query) return;
     lastLibraryFetchKey.current = query;
 
     // Populate `libraryProducts` without overwriting the search field.
     void fetchLibrary(query, { setQuery: false });
-  }, [disableInitialLibrarySearch, fetchLibrary, isHydratingFromShare, productKey, productName, selectedModelId]);
-
-  // Initial library search: load default product presets on first visit.
-  // Skip if a model is already selected (from URL/share).
-  useEffect(() => {
-    if (didInitialLibrarySearch.current) return;
-    if (typeof window === "undefined") return;
-    if (disableInitialLibrarySearch) return;
-    if (isHydratingFromShare) return;
-    if (selectedModelId) return;
-    didInitialLibrarySearch.current = true;
-    // Load defaults, but keep the search field empty.
-    void fetchLibrary(DEFAULT_LIBRARY_QUERY, { setQuery: false });
-  }, [disableInitialLibrarySearch, fetchLibrary, isHydratingFromShare, selectedModelId]);
+  }, [disableInitialLibrarySearch, fetchLibrary, isHydratingFromShare, libraryQuery, productKey, productName, selectedModelId]);
 
   // Auto-select the first returned variant so the GLB loads by default.
   useEffect(() => {
@@ -498,7 +497,6 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
     selectModel,
     modelUrl,
     isHydratingFromShare,
-    shareUrl,
     copyShareLink,
     buildQueryString,
     loadFromShareId,

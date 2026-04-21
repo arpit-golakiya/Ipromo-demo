@@ -49,7 +49,6 @@ export default function Configurator({ shareId }: { shareId?: string }) {
     selectedModelId,
     selectModel,
     modelUrl,
-    shareUrl,
     copyShareLink,
     loadFromShareId,
     syncModelIdFromUrl,
@@ -95,7 +94,6 @@ export default function Configurator({ shareId }: { shareId?: string }) {
             onLogoPlacementModeChange={setIsLogoPlacementMode}
             decal={decal}
             onDecalChange={onDecalChange}
-            shareUrl={shareUrl}
             onCopyShare={copyShareLink}
             captureElementId={CAPTURE_ID}
           />

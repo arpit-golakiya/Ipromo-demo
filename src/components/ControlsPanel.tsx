@@ -178,7 +178,6 @@ export type ControlsPanelProps = {
   onLogoPlacementModeChange: (v: boolean) => void;
   decal: DecalConfig;
   onDecalChange: (next: DecalConfig) => void;
-  shareUrl: string;
   onCopyShare: () => void;
   captureElementId: string;
 };
@@ -202,7 +201,6 @@ export function ControlsPanel({
   onLogoPlacementModeChange,
   decal,
   onDecalChange,
-  shareUrl,
   onCopyShare,
   captureElementId,
 }: ControlsPanelProps) {
@@ -220,11 +218,6 @@ export function ControlsPanel({
   useEffect(() => {
     setLocalQuery(libraryQuery);
   }, [libraryQuery]);
-
-  // Modern browsers handle URLs up to ~100 KB without issues.
-  // Logos are compressed to 256 px on upload, so this is only triggered by
-  // unusually large or complex PNGs.
-  const shareTooLong = shareUrl.length > 100_000;
 
   async function handlePdf() {
     try {

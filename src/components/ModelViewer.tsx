@@ -113,16 +113,16 @@ export function ModelViewer({
     <div
       ref={containerRef}
       id={captureId}
-      className="relative box-border h-full min-h-[240px] w-full flex-1 overflow-hidden rounded-xl border border-white/10 bg-gradient-to-b from-zinc-900 to-black md:min-h-0"
+      className="relative isolate box-border h-full min-h-[240px] w-full flex-1 overflow-hidden rounded-xl border border-white/10 bg-gradient-to-b from-zinc-900 to-black md:min-h-0"
     >
       {title ? (
-        <div className="pointer-events-none absolute left-0 top-0 z-10 w-full bg-gradient-to-b from-black/70 to-black/0 px-4 py-3">
+        <div className="pointer-events-none absolute left-0 top-0 z-20 w-full bg-gradient-to-b from-black/70 to-black/0 px-4 py-3">
           <p className="truncate text-sm font-semibold text-zinc-100">{title}</p>
         </div>
       ) : null}
       <Canvas
         key={hoodie.modelUrl ?? "static"}
-        className="touch-none"
+        className="absolute inset-0 z-0 touch-none"
         camera={{ position: [2.2, 1.6, 2.2], fov: 45, near: 0.1, far: 100 }}
         onCreated={({ gl }) => {
           gl.outputColorSpace = THREE.SRGBColorSpace;
@@ -147,7 +147,7 @@ export function ModelViewer({
 
       {/* Generation progress overlay */}
       {isGeneratingModel && (
-        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/70 backdrop-blur-sm">
+        <div className="pointer-events-none absolute inset-0 z-30 flex flex-col items-center justify-center gap-4 bg-black/70 backdrop-blur-sm">
           <div className="flex flex-col items-center gap-3 px-8 text-center">
             <svg className="h-8 w-8 animate-spin text-blue-400" viewBox="0 0 24 24" fill="none">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -165,7 +165,7 @@ export function ModelViewer({
         </div>
       )}
 
-      <p className="pointer-events-none absolute bottom-3 left-3 max-w-[min(100%,20rem)] text-xs leading-snug text-zinc-500">
+      <p className="pointer-events-none absolute bottom-3 left-3 z-20 max-w-[min(100%,20rem)] text-xs leading-snug text-zinc-500">
         {isLogoPlacementMode ? (
           <span className="text-amber-300">
             Drag on the model to place your logo

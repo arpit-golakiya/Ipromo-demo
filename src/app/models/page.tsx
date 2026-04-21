@@ -127,7 +127,7 @@ export default function AllProductsPage() {
   }, [isLoading, isLoadingMore, nextCursor]);
 
   return (
-    <main className="mx-auto w-full max-w-[1600px] px-3 py-4 sm:px-4 md:px-6 md:py-6">
+    <main className="h-full overflow-y-auto hide-scrollbar mx-auto w-full max-w-[1600px] px-3 py-4 sm:px-4 md:px-6 md:py-6">
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-lg font-semibold text-white">All Products</h1>

@@ -113,7 +113,7 @@ export function ModelViewer({
     <div
       ref={containerRef}
       id={captureId}
-      className="relative isolate box-border h-full min-h-[240px] w-full flex-1 overflow-hidden rounded-xl border border-white/10 bg-gradient-to-b from-zinc-900 to-black md:min-h-0"
+      className="relative isolate box-border h-full min-h-[240px] w-full flex-1 overflow-hidden rounded-xl border border-white/10 bg-gradient-to-b from-zinc-900 to-black max-md:h-[min(52dvh,580px)] max-md:flex-none md:min-h-0"
     >
       {title ? (
         <div

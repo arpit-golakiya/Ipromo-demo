@@ -290,18 +290,6 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
     ? `/api/library/model?id=${encodeURIComponent(selectedModelId)}`
     : null;
 
-  const syncFromUrlParams = useCallback(
-    (params: { modelId: string | null; productName?: string | null; productKey?: string | null }) => {
-      const mid = parseModelId(params.modelId);
-      setSelectedModelId(mid);
-      const urlProductName = parseLabel(params.productName ?? null);
-      if (urlProductName) setProductName(urlProductName);
-      const urlProductKey = parseLabel(params.productKey ?? null, 200);
-      if (urlProductKey) setProductKey(urlProductKey);
-    },
-    [],
-  );
-
   const fetchLibrary = useCallback(async (q: string, opts?: { setQuery?: boolean }) => {
     if (opts?.setQuery !== false) setLibraryQuery(q);
     setIsLoadingLibrary(true);
@@ -359,6 +347,33 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
       setIsLoadingLibrary(false);
     }
   }, []);
+
+  const syncFromUrlParams = useCallback(
+    (params: { modelId: string | null; productName?: string | null; productKey?: string | null }) => {
+      const urlProductName = parseLabel(params.productName ?? null);
+      if (urlProductName) setProductName(urlProductName);
+      const urlProductKey = parseLabel(params.productKey ?? null, 200);
+      if (urlProductKey) setProductKey(urlProductKey);
+
+      const mid = parseModelId(params.modelId);
+      setSelectedModelId(mid);
+
+      const baseName = (() => {
+        const raw = urlProductName || "";
+        const parts = raw.split("—");
+        const left = (parts[0] ?? "").trim();
+        return left && left !== DEFAULT_PRODUCT_NAME ? left : null;
+      })();
+      const query = baseName ?? (urlProductKey && urlProductKey.trim() ? urlProductKey.trim() : null);
+      if (!query) return;
+      if (lastLibraryFetchKey.current === query) return;
+      lastLibraryFetchKey.current = query;
+
+      // Keep the search field intact; just ensure variants/colors match the URL product.
+      void fetchLibrary(query, { setQuery: false });
+    },
+    [fetchLibrary],
+  );
 
   const searchLibrary = useCallback(async (q: string) => {
     await fetchLibrary(q, { setQuery: true });

@@ -791,8 +791,8 @@ export function ControlsPanel({
           <span className="w-12 shrink-0">Size</span>
           <input
             type="range"
-            min={0.04}
-            max={0.55}
+            min={0.05}
+            max={1}
             step={0.005}
             value={decal.scale}
             onChange={(e) =>

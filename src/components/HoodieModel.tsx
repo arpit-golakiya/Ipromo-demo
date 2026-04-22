@@ -40,6 +40,33 @@ function flattenMeshes(root: THREE.Object3D): FlatMesh[] {
   return out;
 }
 
+type PreparedMesh = FlatMesh & {
+  /** Geometry safe for DecalGeometry (has normals). */
+  preparedGeometry: THREE.BufferGeometry;
+  /** True when `preparedGeometry` is a clone and should be disposed. */
+  ownsPreparedGeometry: boolean;
+};
+
+function prepareMeshesForDecals(meshes: FlatMesh[]): PreparedMesh[] {
+  return meshes.map((m) => {
+    const g = m.geometry;
+    const hasPos = Boolean(g?.attributes?.position);
+    const hasNormal = Boolean(g?.attributes?.normal);
+    if (!hasPos) {
+      // No position attribute -> cannot render or decal safely; keep as-is.
+      return { ...m, preparedGeometry: g, ownsPreparedGeometry: false };
+    }
+    if (hasNormal) {
+      return { ...m, preparedGeometry: g, ownsPreparedGeometry: false };
+    }
+    // Some GLBs ship without vertex normals; DecalGeometry needs them.
+    const cloned = g.clone();
+    cloned.computeVertexNormals();
+    cloned.normalizeNormals();
+    return { ...m, preparedGeometry: cloned, ownsPreparedGeometry: true };
+  });
+}
+
 function normalizedDisplayRoot(scene: THREE.Object3D): THREE.Object3D {
   const root = scene.clone(true);
   const box = new THREE.Box3().setFromObject(root);
@@ -55,25 +82,43 @@ function normalizedDisplayRoot(scene: THREE.Object3D): THREE.Object3D {
 }
 
 function pickDecalMeshIndex(meshes: FlatMesh[]): number {
-  let best = -1;
-  let bestCount = -1;
-  let bestR = 0;
-  meshes.forEach((m, i) => {
+  const score = (m: FlatMesh): { ok: boolean; triCount: number; radius: number } => {
     const g = m.geometry;
+    const pos = g?.attributes?.position as THREE.BufferAttribute | undefined;
+    const normal = g?.attributes?.normal as THREE.BufferAttribute | undefined;
+    if (!pos) return { ok: false, triCount: 0, radius: 0 };
+
+    // Prefer meshes that already have normals (or can be computed) for decals.
+    const ok = Boolean(normal);
     const triCount = g.index
       ? Math.floor(g.index.count / 3)
-      : Math.floor(g.attributes.position.count / 3);
+      : Math.floor(pos.count / 3);
     const tmp = g.clone();
     tmp.applyMatrix4(m.matrixWorld);
     tmp.computeBoundingSphere();
-    const r = tmp.boundingSphere?.radius ?? 0;
+    const radius = tmp.boundingSphere?.radius ?? 0;
     tmp.dispose();
-    if (triCount > bestCount || (triCount === bestCount && r > bestR)) {
-      bestCount = triCount;
-      bestR = r;
+    return { ok, triCount, radius };
+  };
+
+  let bestOk = -1;
+  let bestCount = -1;
+  let bestR = 0;
+  let best = -1;
+  meshes.forEach((m, i) => {
+    const s = score(m);
+    const okRank = s.ok ? 1 : 0;
+    if (
+      okRank > bestOk ||
+      (okRank === bestOk && (s.triCount > bestCount || (s.triCount === bestCount && s.radius > bestR)))
+    ) {
+      bestOk = okRank;
+      bestCount = s.triCount;
+      bestR = s.radius;
       best = i;
     }
   });
+
   return best >= 0 ? best : 0;
 }
 
@@ -172,13 +217,25 @@ export function HoodieModel({
     () => flattenMeshes(displayRoot),
     [displayRoot],
   );
-  const decalMeshIndex = useMemo(
-    () => pickDecalMeshIndex(flatMeshes),
+  const preparedMeshes = useMemo(
+    () => prepareMeshesForDecals(flatMeshes),
     [flatMeshes],
+  );
+  const decalMeshIndex = useMemo(
+    () => pickDecalMeshIndex(preparedMeshes),
+    [preparedMeshes],
   );
 
   const { texture: logoMap, loadGeneration: logoLoadGen, aspectRatio: logoAspect } =
     useLogoTexture(logoDataUrl);
+
+  useEffect(() => {
+    return () => {
+      for (const m of preparedMeshes) {
+        if (m.ownsPreparedGeometry) m.preparedGeometry.dispose();
+      }
+    };
+  }, [preparedMeshes]);
 
   useEffect(() => {
     if (!logoMap) return;
@@ -192,15 +249,15 @@ export function HoodieModel({
   }, [gl.capabilities, logoMap]);
 
   const decalGeoBBox = useMemo(() => {
-    if (flatMeshes.length === 0) return null;
-    const geo = flatMeshes[decalMeshIndex].geometry;
+    if (preparedMeshes.length === 0) return null;
+    const geo = preparedMeshes[decalMeshIndex].preparedGeometry;
     const pos = geo.attributes.position;
     if (!pos) return null;
     const box = new THREE.Box3().setFromBufferAttribute(
       pos as THREE.BufferAttribute,
     );
     return box.isEmpty() ? null : box;
-  }, [flatMeshes, decalMeshIndex]);
+  }, [preparedMeshes, decalMeshIndex]);
 
   const decalBBoxSize = useMemo(
     () => decalGeoBBox?.getSize(new THREE.Vector3()) ?? null,
@@ -334,11 +391,11 @@ export function HoodieModel({
     ],
   );
 
-  if (flatMeshes.length === 0) return null;
+  if (preparedMeshes.length === 0) return null;
 
   return (
     <group>
-      {flatMeshes.map((m, index) => (
+      {preparedMeshes.map((m, index) => (
         <group
           key={m.uuid}
           matrix={m.matrixWorld}
@@ -346,7 +403,7 @@ export function HoodieModel({
         >
           <mesh
             ref={index === decalMeshIndex ? decalMeshRef : undefined}
-            geometry={m.geometry}
+            geometry={m.preparedGeometry}
             material={m.material}
             onPointerDown={
               index === decalMeshIndex ? onDecalMeshPointerDown : undefined

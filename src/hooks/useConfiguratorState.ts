@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { DEFAULT_DECAL, type DecalConfig } from "@/types/configurator";
 
 const DEFAULT_PRODUCT_NAME = "Select a product";

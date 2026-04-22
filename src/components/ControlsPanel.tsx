@@ -214,10 +214,30 @@ export function ControlsPanel({
   const [copied, setCopied] = useState(false);
   const [logoDropActive, setLogoDropActive] = useState(false);
   const [localQuery, setLocalQuery] = useState(libraryQuery);
+  const originalLogoDataUrlRef = useRef<string | null>(null);
+  const lastAutoEnhancedSourceRef = useRef<string | null>(null);
+  const autoEnhanceInFlightRef = useRef(false);
 
   useEffect(() => {
     setLocalQuery(libraryQuery);
   }, [libraryQuery]);
+
+  useEffect(() => {
+    // Allow a manual retry: toggling Enhance OFF -> ON should re-attempt.
+    if (!increaseLogoQuality) {
+      lastAutoEnhancedSourceRef.current = null;
+    }
+  }, [increaseLogoQuality]);
+
+  useEffect(() => {
+    // If the logo is cleared (or loaded from share/url without an "original upload"),
+    // reset our local tracking so future uploads can be enhanced immediately on toggle.
+    if (!logoDataUrl) {
+      originalLogoDataUrlRef.current = null;
+      lastAutoEnhancedSourceRef.current = null;
+      return;
+    }
+  }, [logoDataUrl]);
 
   async function handlePdf() {
     try {
@@ -268,6 +288,9 @@ export function ControlsPanel({
           reader.onerror = () => reject(new Error("Failed to read file"));
           reader.readAsDataURL(f);
         });
+        // Keep the true original so we can enhance later without requiring re-upload.
+        originalLogoDataUrlRef.current = dataUrl;
+        lastAutoEnhancedSourceRef.current = null;
 
         // Step 2: enhance (optional)
         let enhancedFile: File | null = null;
@@ -336,6 +359,9 @@ export function ControlsPanel({
       if (typeof res !== "string") return;
       (async () => {
         let next = res;
+        // Keep the true original so we can enhance later without requiring re-upload.
+        originalLogoDataUrlRef.current = res;
+        lastAutoEnhancedSourceRef.current = null;
         if (increaseLogoQuality && !next.startsWith("data:image/svg")) {
           setLogoProcessingLabel("Increasing logo quality…");
           try {
@@ -355,6 +381,69 @@ export function ControlsPanel({
     };
     reader.readAsDataURL(f);
   }
+
+  useEffect(() => {
+    // Auto-enhance after upload when the toggle is turned on.
+    // No button, no re-upload: reprocess from the original uploaded dataUrl.
+    if (!increaseLogoQuality) return;
+    if (autoEnhanceInFlightRef.current) return;
+    if (!logoDataUrl) return;
+    const original = originalLogoDataUrlRef.current;
+    if (!original) return;
+    if (lastAutoEnhancedSourceRef.current === original) return;
+
+    let cancelled = false;
+    autoEnhanceInFlightRef.current = true;
+    setIsLogoProcessing(true);
+    setLogoProcessingLabel("Increasing logo quality…");
+    const maxPx = LOGO_MAX_PX_ENHANCED;
+    // Mark as attempted immediately to prevent failure loops.
+    // If the user wants to retry, they can toggle Enhance OFF -> ON.
+    lastAutoEnhancedSourceRef.current = original;
+
+    (async () => {
+      let dataUrl = original;
+
+      // Step 1: enhance (best-effort; if it fails, keep current logoDataUrl)
+      try {
+        dataUrl = await enhanceLogoViaApi(dataUrl);
+      } catch (e) {
+        console.warn("[ControlsPanel] enhance-logo failed; keeping existing logo.", e);
+        return;
+      }
+
+      // Step 2: background removal (if enabled)
+      if (removeWhiteBg && !dataUrl.startsWith("data:image/svg")) {
+        setLogoProcessingLabel("Removing background…");
+        try {
+          const enhancedFile = dataUrlToFile(dataUrl, "logo");
+          dataUrl = await removeBackgroundViaApi(enhancedFile, enhancedFile.name);
+        } catch {
+          dataUrl = await removeWhiteBackground(dataUrl);
+        }
+      }
+
+      // Step 3: compress for decal texture
+      setLogoProcessingLabel("Optimizing logo…");
+      const compressed = await compressLogoImage(dataUrl, maxPx);
+      if (cancelled) return;
+      onLogoDataUrlChange(compressed);
+    })()
+      .finally(() => {
+        autoEnhanceInFlightRef.current = false;
+        setLogoProcessingLabel(null);
+        setIsLogoProcessing(false);
+      });
+
+    return () => {
+      cancelled = true;
+      // Ensure the loader never gets stuck if the request is cancelled mid-flight.
+      // (This cleanup only runs when deps change, not when we set loader state.)
+      autoEnhanceInFlightRef.current = false;
+      setLogoProcessingLabel(null);
+      setIsLogoProcessing(false);
+    };
+  }, [increaseLogoQuality, logoDataUrl, onLogoDataUrlChange, removeWhiteBg]);
 
   function handleLogoFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];

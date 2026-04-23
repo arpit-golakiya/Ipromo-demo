@@ -255,6 +255,7 @@ export function HoodieModel({
     logoMap.minFilter = THREE.LinearFilter;
     logoMap.magFilter = THREE.LinearFilter;
     logoMap.generateMipmaps = false;
+    logoMap.premultiplyAlpha = true;
     logoMap.needsUpdate = true;
   }, [gl.capabilities, logoMap]);
 
@@ -274,26 +275,36 @@ export function HoodieModel({
     [decalGeoBBox],
   );
 
-  const decalLocal = useMemo((): DecalConfig & { scaleX: number; scaleY: number } => {
-    const lerp = (t: number, min: number, max: number) => min + t * (max - min);
-    const baseScale = decalGeoBBox && decalBBoxSize
-      ? decal.scale * Math.min(decalBBoxSize.x, decalBBoxSize.y)
-      : decal.scale;
-    const scaleX = logoAspect >= 1 ? baseScale * logoAspect : baseScale;
-    const scaleY = logoAspect < 1 ? baseScale / logoAspect : baseScale;
-    const rotation: [number, number, number] = [...decal.rotation];
-    return {
-      position: decalGeoBBox ? [
-        lerp(decal.position[0], decalGeoBBox.min.x, decalGeoBBox.max.x),
-        lerp(decal.position[1], decalGeoBBox.min.y, decalGeoBBox.max.y),
-        lerp(decal.position[2], decalGeoBBox.min.z, decalGeoBBox.max.z),
-      ] : decal.position,
-      rotation,
-      scale: baseScale,
-      scaleX,
-      scaleY,
-    };
-  }, [decal, decalGeoBBox, decalBBoxSize, logoAspect]);
+  const decalLocal = useMemo(
+    (): DecalConfig & { scaleX: number; scaleY: number; projectorDepth: number } => {
+      const lerp = (t: number, min: number, max: number) => min + t * (max - min);
+      const baseScale = decalGeoBBox && decalBBoxSize
+        ? decal.scale * Math.min(decalBBoxSize.x, decalBBoxSize.y)
+        : decal.scale;
+      const scaleX = logoAspect >= 1 ? baseScale * logoAspect : baseScale;
+      const scaleY = logoAspect < 1 ? baseScale / logoAspect : baseScale;
+      // Decal's Z scale is projector depth.
+      // Too small -> logo breaks on folds/curves (projection volume clips).
+      // Too big -> may project onto inner/back faces.
+      // This value is intentionally larger to better follow curved cloth,
+      // but still tied to the logo size so it doesn't explode.
+      const projectorDepth = Math.max(0.03, baseScale * 0.80);
+      const rotation: [number, number, number] = [...decal.rotation];
+      return {
+        position: decalGeoBBox ? [
+          lerp(decal.position[0], decalGeoBBox.min.x, decalGeoBBox.max.x),
+          lerp(decal.position[1], decalGeoBBox.min.y, decalGeoBBox.max.y),
+          lerp(decal.position[2], decalGeoBBox.min.z, decalGeoBBox.max.z),
+        ] : decal.position,
+        rotation,
+        scale: baseScale,
+        scaleX,
+        scaleY,
+        projectorDepth,
+      };
+    },
+    [decal, decalGeoBBox, decalBBoxSize, logoAspect],
+  );
 
   const localToNorm = useCallback(
     (local: THREE.Vector3): [number, number, number] => {
@@ -424,13 +435,18 @@ export function HoodieModel({
                 key={`${logoLoadGen}-${logoMap.uuid}`}
                 position={decalLocal.position}
                 rotation={decalLocal.rotation}
-                scale={[decalLocal.scaleX, decalLocal.scaleY, decalLocal.scale]}
+                scale={[decalLocal.scaleX, decalLocal.scaleY, decalLocal.projectorDepth]}
                 map={logoMap}
                 renderOrder={10}
                 {...{
                   "material-depthTest": true,
                   "material-depthWrite": false,
                   "material-side": THREE.FrontSide,
+                  "material-transparent": true,
+                  // Avoid hard edge cutouts; prefer smooth blending.
+                  "material-alphaTest": 0,
+                  "material-alphaToCoverage": true,
+                  "material-premultipliedAlpha": true,
                   "material-polygonOffset": true,
                   "material-polygonOffsetFactor": -1,
                   "material-polygonOffsetUnits": -4,

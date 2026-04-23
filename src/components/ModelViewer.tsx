@@ -221,8 +221,8 @@ export function ModelViewer({
         camera={
           lockView
             ? // Orthographic camera reads "more 2D" (no perspective distortion).
-              // Zoom tuned to fill the card similarly to the default Stage framing.
-              ({ position: [0, 0.15, 6], zoom: 170, near: 0.1, far: 100 } as const)
+            // Zoom tuned to fill the card similarly to the default Stage framing.
+            ({ position: [0, 0.15, 6], zoom: 250, near: 0.1, far: 100 } as const)
             : ({ position: [2.2, 1.6, 2.2], fov: 45, near: 0.1, far: 100 } as const)
         }
         onCreated={({ gl }) => {

@@ -121,22 +121,23 @@ function Scene({
 
   // t=1 → dark/black scene → whitish bg   t=0 → bright/white scene → blackish bg
   const bgColor = useMemo(() => {
+    if (lockView) return "#f3f4f6"; // light gray card-like background for "2D-ish" preview/PDF
     const t = Math.max(0, Math.min(1, 1 - luminance / 0.35));
     return `#${new THREE.Color("#0f0f0f").lerp(new THREE.Color("#e0e0e0"), t).getHexString()}`;
-  }, [luminance]);
+  }, [lockView, luminance]);
 
   const shouldRenderModel = allowDefaultModel || Boolean(hoodie.modelUrl);
 
   return (
     <>
       <color attach="background" args={[bgColor]} />
-      <ambientLight intensity={0.35} />
+      <ambientLight intensity={lockView ? 0.9 : 0.35} />
       <Suspense fallback={<ModelLoadFallback />}>
         {shouldRenderModel ? (
           <Stage
-            intensity={0.85}
-            environment="city"
-            adjustCamera={1.15}
+            intensity={lockView ? 0.65 : 0.85}
+            environment={lockView ? undefined : "city"}
+            adjustCamera={lockView ? false : 1.15}
             shadows={false}
           >
             <HoodieModel
@@ -168,8 +169,10 @@ export type ModelViewerProps = HoodieModelProps & {
   captureId?: string;
   /** Optional label shown above the canvas (included in capture). */
   title?: string;
-  /** "2d" is a locked (non-orbit) 3D preview mode. */
-  viewMode?: "3d" | "2d";
+  /** Render style for this viewer instance. */
+  variant?: "interactive" | "flat";
+  /** Override canvas device pixel ratio for sharper renders (e.g. modal preview). */
+  dpr?: number | [number, number];
   isLogoPlacementMode?: boolean;
   /** If false, don't render the built-in default model while waiting for a real model URL. */
   allowDefaultModel?: boolean;
@@ -184,7 +187,8 @@ export type ModelViewerProps = HoodieModelProps & {
 export function ModelViewer({
   captureId = "configurator-viewer",
   title,
-  viewMode = "3d",
+  variant = "interactive",
+  dpr,
   isLogoPlacementMode,
   allowDefaultModel = true,
   isGeneratingModel,
@@ -193,6 +197,7 @@ export function ModelViewer({
 }: ModelViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const orbitRef = useRef<OrbitControlsImpl | null>(null);
+  const lockView = variant === "flat";
 
   return (
     <div
@@ -212,12 +217,19 @@ export function ModelViewer({
         key={hoodie.modelUrl ?? "static"}
         className="absolute inset-0 z-0 touch-none"
         style={{ zIndex: 0 }}
-        camera={{ position: [2.2, 1.6, 2.2], fov: 45, near: 0.1, far: 100 }}
+        orthographic={lockView}
+        camera={
+          lockView
+            ? // Orthographic camera reads "more 2D" (no perspective distortion).
+              // Zoom tuned to fill the card similarly to the default Stage framing.
+              ({ position: [0, 0.15, 6], zoom: 170, near: 0.1, far: 100 } as const)
+            : ({ position: [2.2, 1.6, 2.2], fov: 45, near: 0.1, far: 100 } as const)
+        }
         onCreated={({ gl }) => {
           gl.outputColorSpace = THREE.SRGBColorSpace;
           // PBR GLBs often look too dark without tone mapping + a bit of exposure.
           gl.toneMapping = THREE.ACESFilmicToneMapping;
-          gl.toneMappingExposure = 1.15;
+          gl.toneMappingExposure = lockView ? 1.0 : 1.15;
 
           // Prefer physically correct lighting when supported by this Three version.
           (gl as unknown as { useLegacyLights?: boolean }).useLegacyLights = false;
@@ -228,13 +240,13 @@ export function ModelViewer({
           alpha: false,
           powerPreference: "high-performance",
         }}
-        dpr={[1, 2]}
+        dpr={dpr ?? [1, 2]}
         resize={{ offsetSize: true, debounce: { scroll: 0, resize: 0 } }}
       >
         <Scene
           {...hoodie}
           orbitRef={orbitRef}
-          lockView={viewMode === "2d"}
+          lockView={lockView}
           isLogoPlacementMode={isLogoPlacementMode}
           allowDefaultModel={allowDefaultModel}
         />
@@ -269,7 +281,7 @@ export function ModelViewer({
             Drag on the model to place your logo
           </span>
         ) : (
-          viewMode === "2d" ? <>Locked preview</> : <>Drag to rotate · Scroll to zoom</>
+          lockView ? <>Preview</> : <>Drag to rotate · Scroll to zoom</>
         )}
       </p>
     </div>

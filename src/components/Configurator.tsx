@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ControlsPanel } from "@/components/ControlsPanel";
 import { useConfiguratorState } from "@/hooks/useConfiguratorState";
@@ -32,9 +32,8 @@ const CAPTURE_ID = "configurator-viewer";
 export default function Configurator({ shareId }: { shareId?: string }) {
   const isSharedView = Boolean(shareId);
   const searchParams = useSearchParams();
+  const [is2dOpen, setIs2dOpen] = useState(false);
   const {
-    viewMode,
-    setViewMode,
     productName,
     productKey,
     logoDataUrl,
@@ -83,8 +82,7 @@ export default function Configurator({ shareId }: { shareId?: string }) {
           <ControlsPanel
             productName={productName}
             productKey={productKey}
-            viewMode={viewMode}
-            onViewModeChange={setViewMode}
+            onOpen2dPreview={() => setIs2dOpen(true)}
             libraryQuery={libraryQuery}
             libraryProducts={libraryProducts}
             isLoadingLibrary={isLoadingLibrary}
@@ -107,7 +105,7 @@ export default function Configurator({ shareId }: { shareId?: string }) {
         <ModelViewer
           captureId={CAPTURE_ID}
           title={productName}
-          viewMode={viewMode}
+          variant="interactive"
           logoDataUrl={logoDataUrl}
           decal={decal}
           onDecalChange={isSharedView ? undefined : onDecalChange}
@@ -118,6 +116,51 @@ export default function Configurator({ shareId }: { shareId?: string }) {
           modelGenerationProgress={0}
         />
       </div>
+
+      {is2dOpen ? (
+        <div
+          role="dialog"
+          aria-modal
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+          onClick={() => setIs2dOpen(false)}
+        >
+          <div
+            className="relative h-[min(86vh,760px)] w-[min(92vw,980px)] overflow-hidden rounded-2xl border border-white/10 bg-zinc-950 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="absolute left-0 top-0 z-20 flex w-full items-center justify-between border-b border-white/10 bg-black/40 px-4 py-3 backdrop-blur-sm">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-zinc-100">2D preview</p>
+                <p className="truncate text-xs text-zinc-400">{productName}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIs2dOpen(false)}
+                className="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-100 hover:bg-white/10"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="h-full w-full pt-12">
+              <ModelViewer
+                captureId="configurator-2d-preview"
+                title={undefined}
+                variant="flat"
+                dpr={2}
+                logoDataUrl={logoDataUrl}
+                decal={decal}
+                onDecalChange={undefined}
+                isLogoPlacementMode={false}
+                allowDefaultModel={false}
+                modelUrl={modelUrl ?? undefined}
+                isGeneratingModel={false}
+                modelGenerationProgress={0}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

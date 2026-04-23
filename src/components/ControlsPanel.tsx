@@ -165,8 +165,7 @@ async function removeWhiteBackground(dataUrl: string, tolerance = 40): Promise<s
 export type ControlsPanelProps = {
   productName: string;
   productKey: string | null;
-  viewMode: "3d" | "2d";
-  onViewModeChange: (v: "3d" | "2d") => void;
+  onOpen2dPreview: () => void;
   libraryQuery: string;
   libraryProducts: LibraryProduct[];
   isLoadingLibrary: boolean;
@@ -190,8 +189,7 @@ export type ControlsPanelProps = {
 export function ControlsPanel({
   productName,
   productKey: _productKey,
-  viewMode,
-  onViewModeChange,
+  onOpen2dPreview,
   libraryQuery,
   libraryProducts,
   isLoadingLibrary,
@@ -508,34 +506,14 @@ export function ControlsPanel({
         </p>
       </header>
 
-      {/* ── View mode ── */}
-      <div className="flex flex-col gap-2">
-        <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-          View
-        </span>
-        <div className="grid grid-cols-2 gap-2 rounded-lg border border-white/10 bg-black/20 p-1">
-          <button
-            type="button"
-            onClick={() => onViewModeChange("3d")}
-            className={`rounded-md px-3 py-2 text-xs font-medium transition ${viewMode === "3d"
-              ? "bg-indigo-600 text-white"
-              : "text-zinc-300 hover:bg-white/10"
-              }`}
-          >
-            3D
-          </button>
-          <button
-            type="button"
-            onClick={() => onViewModeChange("2d")}
-            className={`rounded-md px-3 py-2 text-xs font-medium transition ${viewMode === "2d"
-              ? "bg-indigo-600 text-white"
-              : "text-zinc-300 hover:bg-white/10"
-              }`}
-          >
-            2D
-          </button>
-        </div>
-      </div>
+      {/* ── 2D preview ── */}
+      <button
+        type="button"
+        onClick={onOpen2dPreview}
+        className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-zinc-100 transition hover:bg-white/10"
+      >
+        View 2D preview
+      </button>
 
       {/* ── Product library ── */}
       <div className="flex flex-col gap-2">

@@ -6,6 +6,7 @@ import { Suspense, useCallback, useMemo, useRef, useState, type RefObject } from
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { HoodieModel, type HoodieModelProps } from "@/components/HoodieModel";
+// (No 2D image renderer: "2d" mode is a locked 3D preview.)
 
 function ModelLoadFallback({ label }: { label?: string }) {
   const { active, progress } = useProgress();
@@ -71,11 +72,13 @@ function sampleCanvasLuminance(gl: THREE.WebGLRenderer): number | null {
 function Scene({
   orbitRef,
   isLogoPlacementMode,
+  lockView,
   allowDefaultModel = true,
   ...hoodie
 }: HoodieModelProps & {
   orbitRef: RefObject<OrbitControlsImpl | null>;
   isLogoPlacementMode?: boolean;
+  lockView?: boolean;
   allowDefaultModel?: boolean;
 }) {
   const { gl } = useThree();
@@ -127,11 +130,11 @@ function Scene({
   return (
     <>
       <color attach="background" args={[bgColor]} />
-      <ambientLight intensity={0.25} />
+      <ambientLight intensity={0.35} />
       <Suspense fallback={<ModelLoadFallback />}>
         {shouldRenderModel ? (
           <Stage
-            intensity={0.5}
+            intensity={0.85}
             environment="city"
             adjustCamera={1.15}
             shadows={false}
@@ -149,7 +152,7 @@ function Scene({
       </Suspense>
       <OrbitControls
         ref={orbitRef}
-        enabled={!isLogoPlacementMode}
+        enabled={!lockView && !isLogoPlacementMode}
         enableDamping
         dampingFactor={0.08}
         minDistance={0.2}
@@ -165,6 +168,8 @@ export type ModelViewerProps = HoodieModelProps & {
   captureId?: string;
   /** Optional label shown above the canvas (included in capture). */
   title?: string;
+  /** "2d" is a locked (non-orbit) 3D preview mode. */
+  viewMode?: "3d" | "2d";
   isLogoPlacementMode?: boolean;
   /** If false, don't render the built-in default model while waiting for a real model URL. */
   allowDefaultModel?: boolean;
@@ -179,6 +184,7 @@ export type ModelViewerProps = HoodieModelProps & {
 export function ModelViewer({
   captureId = "configurator-viewer",
   title,
+  viewMode = "3d",
   isLogoPlacementMode,
   allowDefaultModel = true,
   isGeneratingModel,
@@ -209,6 +215,12 @@ export function ModelViewer({
         camera={{ position: [2.2, 1.6, 2.2], fov: 45, near: 0.1, far: 100 }}
         onCreated={({ gl }) => {
           gl.outputColorSpace = THREE.SRGBColorSpace;
+          // PBR GLBs often look too dark without tone mapping + a bit of exposure.
+          gl.toneMapping = THREE.ACESFilmicToneMapping;
+          gl.toneMappingExposure = 1.15;
+
+          // Prefer physically correct lighting when supported by this Three version.
+          (gl as unknown as { useLegacyLights?: boolean }).useLegacyLights = false;
         }}
         gl={{
           preserveDrawingBuffer: true,
@@ -222,6 +234,7 @@ export function ModelViewer({
         <Scene
           {...hoodie}
           orbitRef={orbitRef}
+          lockView={viewMode === "2d"}
           isLogoPlacementMode={isLogoPlacementMode}
           allowDefaultModel={allowDefaultModel}
         />
@@ -256,7 +269,7 @@ export function ModelViewer({
             Drag on the model to place your logo
           </span>
         ) : (
-          <>Drag to rotate · Scroll to zoom</>
+          viewMode === "2d" ? <>Locked preview</> : <>Drag to rotate · Scroll to zoom</>
         )}
       </p>
     </div>

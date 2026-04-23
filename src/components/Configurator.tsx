@@ -33,6 +33,8 @@ export default function Configurator({ shareId }: { shareId?: string }) {
   const isSharedView = Boolean(shareId);
   const searchParams = useSearchParams();
   const {
+    viewMode,
+    setViewMode,
     productName,
     productKey,
     logoDataUrl,
@@ -81,6 +83,8 @@ export default function Configurator({ shareId }: { shareId?: string }) {
           <ControlsPanel
             productName={productName}
             productKey={productKey}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
             libraryQuery={libraryQuery}
             libraryProducts={libraryProducts}
             isLoadingLibrary={isLoadingLibrary}
@@ -103,6 +107,7 @@ export default function Configurator({ shareId }: { shareId?: string }) {
         <ModelViewer
           captureId={CAPTURE_ID}
           title={productName}
+          viewMode={viewMode}
           logoDataUrl={logoDataUrl}
           decal={decal}
           onDecalChange={isSharedView ? undefined : onDecalChange}

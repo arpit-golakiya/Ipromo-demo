@@ -165,6 +165,8 @@ async function removeWhiteBackground(dataUrl: string, tolerance = 40): Promise<s
 export type ControlsPanelProps = {
   productName: string;
   productKey: string | null;
+  viewMode: "3d" | "2d";
+  onViewModeChange: (v: "3d" | "2d") => void;
   libraryQuery: string;
   libraryProducts: LibraryProduct[];
   isLoadingLibrary: boolean;
@@ -188,6 +190,8 @@ export type ControlsPanelProps = {
 export function ControlsPanel({
   productName,
   productKey: _productKey,
+  viewMode,
+  onViewModeChange,
   libraryQuery,
   libraryProducts,
   isLoadingLibrary,
@@ -504,6 +508,35 @@ export function ControlsPanel({
         </p>
       </header>
 
+      {/* ── View mode ── */}
+      <div className="flex flex-col gap-2">
+        <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+          View
+        </span>
+        <div className="grid grid-cols-2 gap-2 rounded-lg border border-white/10 bg-black/20 p-1">
+          <button
+            type="button"
+            onClick={() => onViewModeChange("3d")}
+            className={`rounded-md px-3 py-2 text-xs font-medium transition ${viewMode === "3d"
+              ? "bg-indigo-600 text-white"
+              : "text-zinc-300 hover:bg-white/10"
+              }`}
+          >
+            3D
+          </button>
+          <button
+            type="button"
+            onClick={() => onViewModeChange("2d")}
+            className={`rounded-md px-3 py-2 text-xs font-medium transition ${viewMode === "2d"
+              ? "bg-indigo-600 text-white"
+              : "text-zinc-300 hover:bg-white/10"
+              }`}
+          >
+            2D
+          </button>
+        </div>
+      </div>
+
       {/* ── Product library ── */}
       <div className="flex flex-col gap-2">
         <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
@@ -583,8 +616,8 @@ export function ControlsPanel({
                         type="button"
                         onClick={() => onSelectModel(item)}
                         className={`flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs transition ${active
-                            ? "border-indigo-500/50 bg-indigo-950/40 text-indigo-100"
-                            : "border-white/10 bg-black/25 text-zinc-200 hover:border-white/20 hover:bg-black/35"
+                          ? "border-indigo-500/50 bg-indigo-950/40 text-indigo-100"
+                          : "border-white/10 bg-black/25 text-zinc-200 hover:border-white/20 hover:bg-black/35"
                           }`}
                       >
                         <div className="h-7 w-7 shrink-0 overflow-hidden rounded bg-black/30">
@@ -659,8 +692,8 @@ export function ControlsPanel({
           onDragLeave={handleLogoDragLeave}
           onDrop={handleLogoDrop}
           className={`relative rounded-lg border-2 border-dashed p-3 transition-colors ${logoDropActive
-              ? "border-blue-400 bg-blue-500/10"
-              : "border-white/15 bg-black/20"
+            ? "border-blue-400 bg-blue-500/10"
+            : "border-white/15 bg-black/20"
             }`}
         >
           {isLogoProcessing ? (
@@ -720,8 +753,8 @@ export function ControlsPanel({
                 disabled={isLogoProcessing}
                 onClick={() => onLogoPlacementModeChange(!isLogoPlacementMode)}
                 className={`flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${isLogoPlacementMode
-                    ? "border-amber-400/60 bg-amber-400/15 text-amber-300 hover:bg-amber-400/25"
-                    : "border-white/15 bg-white/5 text-zinc-300 hover:bg-white/10"
+                  ? "border-amber-400/60 bg-amber-400/15 text-amber-300 hover:bg-amber-400/25"
+                  : "border-white/15 bg-white/5 text-zinc-300 hover:bg-white/10"
                   }`}
               >
                 {isLogoProcessing
@@ -804,7 +837,6 @@ export function ControlsPanel({
             {Math.round(decal.scale * 100)}%
           </span>
         </label>
-
       </div>
 
       <div className="mt-auto flex flex-col gap-2 border-t border-white/10 pt-4">

@@ -82,6 +82,7 @@ function readDecalFromParams(sp: URLSearchParams): DecalConfig {
 export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: boolean }) {
   const disableInitialLibrarySearch = Boolean(opts?.disableInitialLibrarySearch);
   const [color, setColor] = useState("#ffffff");
+  const [viewMode, setViewMode] = useState<"3d" | "2d">("3d");
   const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null);
   const [decal, setDecalState] = useState<DecalConfig>(DEFAULT_DECAL);
   const [isLogoPlacementMode, setIsLogoPlacementMode] = useState(false);
@@ -150,6 +151,9 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
 
     const c = parseColor(sp.get("c"));
     if (c) setColor(c);
+
+    const vm = (sp.get("vm") ?? "").trim().toLowerCase();
+    if (vm === "2d") setViewMode("2d");
 
     const urlProductName = parseLabel(sp.get("productName"));
     if (urlProductName) setProductName(urlProductName);
@@ -261,6 +265,7 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
   const buildQueryString = useCallback(() => {
     const params = new URLSearchParams();
     params.set("c", color.replace("#", ""));
+    if (viewMode === "2d") params.set("vm", "2d");
     params.set("dx", String(decal.position[0]));
     params.set("dy", String(decal.position[1]));
     params.set("dz", String(decal.position[2]));
@@ -270,7 +275,7 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
     params.set("rz", String(decal.rotation[2]));
     if (selectedModelId) params.set("modelId", selectedModelId);
     return params.toString();
-  }, [color, decal, selectedModelId]);
+  }, [color, decal, selectedModelId, viewMode]);
 
   const buildShareHref = useCallback(() => {
     const q = buildQueryString();
@@ -478,6 +483,8 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
   }, [buildShareHref, color, decal, logoDataUrl, productName, selectedModelId]);
 
   return {
+    viewMode,
+    setViewMode,
     productKey,
     productName,
     logoDataUrl,

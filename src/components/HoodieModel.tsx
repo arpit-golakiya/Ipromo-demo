@@ -186,6 +186,8 @@ export type HoodieModelProps = {
   orbitRef?: RefObject<OrbitControlsImpl | null>;
   isLogoPlacementMode?: boolean;
   modelUrl?: string;
+  /** Called once after the model loads with the average material luminance (0 = black, 1 = white). */
+  onModelColorInfo?: (luminance: number) => void;
 };
 
 export function HoodieModel({
@@ -195,6 +197,7 @@ export function HoodieModel({
   orbitRef,
   isLogoPlacementMode,
   modelUrl,
+  onModelColorInfo,
 }: HoodieModelProps) {
   const effectiveModelUrl = modelUrl ?? HOODIE_MODEL_PATH;
   const { scene } = useGLTF(effectiveModelUrl);
@@ -236,6 +239,13 @@ export function HoodieModel({
       }
     };
   }, [preparedMeshes]);
+
+  // Signal to the viewer that the model meshes are in the scene so it can
+  // sample the rendered canvas pixels for accurate background detection.
+  useEffect(() => {
+    if (!onModelColorInfo || preparedMeshes.length === 0) return;
+    onModelColorInfo(0); // value unused — just a readiness signal
+  }, [preparedMeshes, onModelColorInfo]);
 
   useEffect(() => {
     if (!logoMap) return;

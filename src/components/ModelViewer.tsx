@@ -1,8 +1,8 @@
 "use client";
 
 import { Html, OrbitControls, Stage, useProgress } from "@react-three/drei";
-import { Canvas } from "@react-three/fiber";
-import { Suspense, useRef, type RefObject } from "react";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Suspense, useCallback, useMemo, useRef, useState, type RefObject } from "react";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { HoodieModel, type HoodieModelProps } from "@/components/HoodieModel";
@@ -32,8 +32,41 @@ function ModelLoadFallback({ label }: { label?: string }) {
 }
 
 /**
- * Lighting / framing aligned with `GLB_DEMO/frontend/src/Model.jsx` (Stage + city + low ambient).
- * Logo placement and decals stay in `HoodieModel` unchanged.
+ * Reads the average luminance of the centre 40 % of the WebGL canvas.
+ * Called once after the model finishes rendering so we get the true
+ * perceived brightness — textures, PBR, environment and all.
+ */
+function sampleCanvasLuminance(gl: THREE.WebGLRenderer): number | null {
+  const canvas = gl.domElement;
+  const w = canvas.width;
+  const h = canvas.height;
+  if (w < 1 || h < 1) return null;
+
+  const sw = Math.max(8, Math.floor(w * 0.4));
+  const sh = Math.max(8, Math.floor(h * 0.4));
+  const sx = Math.floor((w - sw) / 2);
+  const sy = Math.floor((h - sh) / 2);
+
+  const pixels = new Uint8Array(sw * sh * 4);
+  // WebGL y=0 is at the bottom, so flip the y origin.
+  gl.getContext().readPixels(sx, h - sy - sh, sw, sh, 0x1908 /* RGBA */, 0x1401 /* UNSIGNED_BYTE */, pixels);
+
+  const count = sw * sh;
+  let total = 0;
+  for (let i = 0; i < count; i++) {
+    total +=
+      0.2126 * (pixels[i * 4] / 255) +
+      0.7152 * (pixels[i * 4 + 1] / 255) +
+      0.0722 * (pixels[i * 4 + 2] / 255);
+  }
+  return total / count;
+}
+
+/**
+ * Lighting / framing aligned with `GLB_DEMO/frontend/src/Model.jsx`.
+ * Background colour is derived from the actual rendered pixel luminance so
+ * texture-based colours, PBR metalness/roughness and environment lighting are
+ * all accounted for — material.color alone is unreliable for GLBs.
  */
 function Scene({
   orbitRef,
@@ -45,10 +78,55 @@ function Scene({
   isLogoPlacementMode?: boolean;
   allowDefaultModel?: boolean;
 }) {
+  const { gl } = useThree();
+
+  // 0.5 = neutral grey until we sample the real rendered pixels.
+  const [luminance, setLuminance] = useState(0.5);
+
+  // Refs that drive the one-shot pixel sample after model renders.
+  const modelReadyRef = useRef(false);   // flipped when HoodieModel fires its callback
+  const frameCountRef = useRef(0);
+  const sampledRef = useRef(false);
+
+  // HoodieModel calls this once it has parsed the meshes (i.e. model is in scene).
+  const handleColorInfo = useCallback(() => {
+    modelReadyRef.current = true;
+    frameCountRef.current = 0;
+  }, []);
+
+  // Reset on every model URL change so a newly loaded model is re-sampled.
+  const modelUrlKey = hoodie.modelUrl ?? "default";
+  const prevKeyRef = useRef(modelUrlKey);
+  if (prevKeyRef.current !== modelUrlKey) {
+    prevKeyRef.current = modelUrlKey;
+    modelReadyRef.current = false;
+    frameCountRef.current = 0;
+    sampledRef.current = false;
+  }
+
+  useFrame(() => {
+    // Only sample once per model load, and only after HoodieModel has rendered.
+    if (sampledRef.current || !modelReadyRef.current) return;
+    frameCountRef.current++;
+    // Wait 5 frames so the Stage environment + shadows have had time to render.
+    if (frameCountRef.current < 5) return;
+
+    sampledRef.current = true;
+    const lum = sampleCanvasLuminance(gl);
+    if (lum !== null) setLuminance(lum);
+  });
+
+  // t=1 → dark/black scene → whitish bg   t=0 → bright/white scene → blackish bg
+  const bgColor = useMemo(() => {
+    const t = Math.max(0, Math.min(1, 1 - luminance / 0.35));
+    return `#${new THREE.Color("#0f0f0f").lerp(new THREE.Color("#e0e0e0"), t).getHexString()}`;
+  }, [luminance]);
+
   const shouldRenderModel = allowDefaultModel || Boolean(hoodie.modelUrl);
 
   return (
     <>
+      <color attach="background" args={[bgColor]} />
       <ambientLight intensity={0.25} />
       <Suspense fallback={<ModelLoadFallback />}>
         {shouldRenderModel ? (
@@ -62,6 +140,7 @@ function Scene({
               {...hoodie}
               orbitRef={orbitRef}
               isLogoPlacementMode={isLogoPlacementMode}
+              onModelColorInfo={handleColorInfo}
             />
           </Stage>
         ) : (
@@ -117,7 +196,7 @@ export function ModelViewer({
     >
       {title ? (
         <div
-          className="pointer-events-none absolute left-0 top-0 z-20 w-full bg-gradient-to-b from-black/70 to-black/0 px-4 py-3 transform-gpu"
+          className="pointer-events-none absolute left-0 top-0 z-20 w-full bg-gradient-to-b from-black/80 to-black/0 px-4 py-3 transform-gpu"
           style={{ transform: "translateZ(0)" }}
         >
           <p className="truncate text-sm font-semibold text-zinc-100">{title}</p>
@@ -140,7 +219,6 @@ export function ModelViewer({
         dpr={[1, 2]}
         resize={{ offsetSize: true, debounce: { scroll: 0, resize: 0 } }}
       >
-        <color attach="background" args={["#0c0c12"]} />
         <Scene
           {...hoodie}
           orbitRef={orbitRef}

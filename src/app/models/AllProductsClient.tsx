@@ -58,12 +58,13 @@ export default function AllProductsClient(props: {
     setProducts((prev) => {
       const incoming = data.products ?? [];
       if (!opts.append) return incoming;
-      const seen = new Set(prev.map((p) => p.product_name));
+      const seen = new Set(prev.map((p) => String(p.product_key ?? p.product_name)));
       const merged = [...prev];
       for (const p of incoming) {
-        if (!seen.has(p.product_name)) {
+        const k = String(p.product_key ?? p.product_name);
+        if (!seen.has(k)) {
           merged.push(p);
-          seen.add(p.product_name);
+          seen.add(k);
         }
       }
       return merged;
@@ -174,14 +175,14 @@ export default function AllProductsClient(props: {
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
         {products.map((p) => {
-          const productKey = p.product_name;
+          const productKey = String(p.product_key ?? p.product_name);
           const isExpanded = !!expandedByProduct[productKey];
           const visibleCount = visibleVariantsByProduct[productKey] ?? 12;
           const visibleVariants = isExpanded ? p.variants.slice(0, visibleCount) : [];
 
           return (
             <section
-              key={p.product_name}
+              key={productKey}
               className="rounded-xl border border-white/10 bg-zinc-900/70 p-3"
             >
               <div className="flex items-center gap-3">

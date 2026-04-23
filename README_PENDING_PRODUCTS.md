@@ -138,5 +138,5 @@ Generate and store preloaded 3D GLB models per product color, then make them loa
 - Clear env vars to configure:
   OPENAI_API_KEY, HYPER3D_API_KEY,
   AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, S3_BUCKET,
-  SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_TABLE
+  DATABASE_URL
 - Do not store any secrets in git or logs.

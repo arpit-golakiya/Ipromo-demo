@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerSupabaseAdminClient } from "@/lib/supabase";
+import { dbQuery } from "@/lib/db";
 import type { DecalConfig } from "@/types/configurator";
 
 type SharePayload = {
@@ -30,24 +30,20 @@ export async function POST(req: NextRequest) {
   const payloadToStore: SharePayload = payload;
 
   try {
-    const supabase = createServerSupabaseAdminClient();
-    const { data, error } = await supabase
-      .from(TABLE)
-      .insert({
-        payload: payloadToStore,
-        logo_url: null,
-      })
-      .select("id")
-      .single();
+    const { rows } = await dbQuery<{ id: string | number }>(
+      `insert into ${TABLE} (payload, logo_url) values ($1::jsonb, $2) returning id`,
+      [JSON.stringify(payloadToStore), null],
+    );
 
-    if (error || !data?.id) {
+    const id = rows[0]?.id;
+    if (id == null) {
       return NextResponse.json(
-        { error: error?.message ?? "Failed to create share link" },
+        { error: "Failed to create share link" },
         { status: 502 },
       );
     }
 
-    return NextResponse.json({ id: data.id });
+    return NextResponse.json({ id });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: msg }, { status: 500 });
@@ -61,16 +57,15 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const supabase = createServerSupabaseAdminClient();
-    const { data, error } = await supabase
-      .from(TABLE)
-      .select("payload, logo_url")
-      .eq("id", id)
-      .single();
+    const { rows } = await dbQuery<{ payload: unknown; logo_url: string | null }>(
+      `select payload, logo_url from ${TABLE} where id::text = $1 limit 1`,
+      [id],
+    );
+    const data = rows[0] ?? null;
 
-    if (error || !data) {
+    if (!data) {
       return NextResponse.json(
-        { error: error?.message ?? "Not found" },
+        { error: "Not found" },
         { status: 404 },
       );
     }

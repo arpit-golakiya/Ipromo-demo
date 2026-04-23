@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerSupabaseAdminClient } from "@/lib/supabase";
+import { dbQuery } from "@/lib/db";
 
 const TABLE = "preloaded_models";
 
@@ -76,47 +76,50 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const supabase = createServerSupabaseAdminClient();
     // Fetch enough rows to fill pageSize products. Assumes ≤25 variants per product on
     // average; capped at 500 to avoid huge payloads. Previously this was pageSize*80 (400
     // rows for 5 products), which was the main cause of 5 s first-load times.
     const rowLimit = Math.min(Math.max(pageSize * 25, 100), 500);
 
-    let query = supabase
-      .from(TABLE)
-      // glb_url is intentionally omitted from SELECT — it's only needed for the null
-      // filter below and is never returned to the client.
-      .select("id,product_name,product_key,color_label,image_url,created_at")
-      .not("glb_url", "is", null)
-      .order("created_at", { ascending: false })
-      .order("id", { ascending: false })
-      .limit(rowLimit);
+    // Build a parameterized query that matches the Supabase filters:
+    // - glb_url IS NOT NULL
+    // - optional product_name ILIKE %q%
+    // - optional cursor: created_at < c OR (created_at = c AND id < id)
+    const params: unknown[] = [];
+    let where = `where glb_url is not null`;
 
     if (q) {
-      query = query.ilike("product_name", `%${q}%`);
+      params.push(`%${q}%`);
+      where += ` and product_name ilike $${params.length}`;
     }
 
     if (cursor) {
-      // created_at < cursor.createdAt OR (created_at == cursor.createdAt AND id < cursor.id)
-      // Note: `or()` uses PostgREST filter syntax.
-      query = query.or(
-        `created_at.lt.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},id.lt.${cursor.id})`,
-      );
+      params.push(cursor.createdAt, cursor.id);
+      const a = params.length - 1;
+      const b = params.length;
+      where += ` and (created_at < $${a} or (created_at = $${a} and id::text < $${b}))`;
     }
 
-    const { data, error } = await query;
-    if (error) {
-      return NextResponse.json({ error: error.message ?? "Failed to search library" }, { status: 502 });
-    }
+    params.push(rowLimit);
+    const limitParam = params.length;
 
-    const rows = (data ?? []) as Array<{
+    const { rows } = await dbQuery<{
       id: string | number;
       product_name: string | null;
       product_key?: string | null;
       color_label: string | null;
       image_url: string | null;
-      created_at: string | null;
-    }>;
+      created_at: unknown | null;
+    }>(
+      `
+      select id, product_name, product_key, color_label, image_url, created_at
+      from ${TABLE}
+      ${where}
+      order by created_at desc nulls last, id desc
+      limit $${limitParam}
+      `,
+      params,
+    );
 
     // Accumulate up to `pageSize` unique products in insertion order.
     const byProduct = new Map<
@@ -175,9 +178,13 @@ export async function GET(req: NextRequest) {
         image_url: typeof row.image_url === "string" ? row.image_url : null,
       });
 
-      if (typeof row.created_at === "string" && row.created_at) {
-        lastIncludedRow = { created_at: row.created_at, id };
-      }
+      const createdAt =
+        typeof row.created_at === "string"
+          ? row.created_at
+          : row.created_at instanceof Date
+            ? row.created_at.toISOString()
+            : null;
+      if (createdAt) lastIncludedRow = { created_at: createdAt, id };
     }
 
     const products = Array.from(byProduct.values()).map((p) => ({

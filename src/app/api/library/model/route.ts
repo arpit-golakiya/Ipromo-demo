@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerSupabaseAdminClient } from "@/lib/supabase";
+import { dbQuery } from "@/lib/db";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
@@ -38,18 +38,17 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const supabase = createServerSupabaseAdminClient();
-    const { data, error } = await supabase
-      .from(TABLE)
-      .select("glb_url")
-      .eq("id", id)
-      .single();
+    const { rows } = await dbQuery<{ glb_url: string | null }>(
+      `select glb_url from ${TABLE} where id::text = $1 limit 1`,
+      [id],
+    );
 
-    if (error || !data?.glb_url) {
-      return NextResponse.json({ error: error?.message ?? "Model not found" }, { status: 404 });
+    const glbUrlRaw = rows[0]?.glb_url ?? null;
+    if (!glbUrlRaw) {
+      return NextResponse.json({ error: "Model not found" }, { status: 404 });
     }
 
-    const glbUrl = String(data.glb_url);
+    const glbUrl = String(glbUrlRaw);
     const fetchUrl = await toFetchUrl(glbUrl);
     const modelRes = await fetch(fetchUrl);
     if (!modelRes.ok) {

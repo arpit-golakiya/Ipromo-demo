@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerSupabaseAdminClient } from "@/lib/supabase";
+import { dbQuery } from "@/lib/db";
 import type { DecalConfig } from "@/types/configurator";
 
 const TABLE = "preloaded_models";
@@ -38,27 +38,15 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const supabase = createServerSupabaseAdminClient();
     // If only modelId is provided, derive productKey from the model row.
     let effectiveProductKey = productKey;
     if (!effectiveProductKey && modelId) {
-      const { data, error } = await supabase
-        .from(TABLE)
-        .select("product_key")
-        .eq("id", modelId)
-        .maybeSingle();
-
-      if (error) {
-        return NextResponse.json(
-          { error: error.message ?? "Failed to resolve product key" },
-          { status: 502 },
-        );
-      }
-
-      if (data && typeof (data as { product_key?: unknown }).product_key === "string") {
-        const pk = String((data as { product_key?: string }).product_key ?? "").trim();
-        if (pk) effectiveProductKey = pk;
-      }
+      const { rows } = await dbQuery<{ product_key: string | null }>(
+        `select product_key from ${TABLE} where id::text = $1 limit 1`,
+        [modelId],
+      );
+      const pk = String(rows[0]?.product_key ?? "").trim();
+      if (pk) effectiveProductKey = pk;
     }
 
     if (!effectiveProductKey) {
@@ -69,22 +57,15 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const { data, error } = await supabase
-      .from(TABLE)
-      .select("default_decal")
-      .eq("product_key", effectiveProductKey)
-      .not("default_decal", "is", null)
-      .limit(1)
-      .maybeSingle();
+    const { rows } = await dbQuery<{ default_decal: unknown | null }>(
+      `select default_decal
+       from ${TABLE}
+       where product_key = $1 and default_decal is not null
+       limit 1`,
+      [effectiveProductKey],
+    );
 
-    if (error) {
-      return NextResponse.json(
-        { error: error.message ?? "Failed to fetch decal preset" },
-        { status: 502 },
-      );
-    }
-
-    const decal = (data as { default_decal?: unknown } | null)?.default_decal;
+    const decal = rows[0]?.default_decal ?? null;
     return NextResponse.json({
       modelId: modelId ?? null,
       productKey: effectiveProductKey,
@@ -119,21 +100,13 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const supabase = createServerSupabaseAdminClient();
     let effectiveProductKey = productKey;
     if (!effectiveProductKey && modelId) {
-      const { data, error } = await supabase
-        .from(TABLE)
-        .select("product_key")
-        .eq("id", modelId)
-        .maybeSingle();
-      if (error) {
-        return NextResponse.json(
-          { ok: false, error: error.message ?? "Failed to resolve product key" },
-          { status: 502 },
-        );
-      }
-      const pk = String((data as { product_key?: unknown } | null)?.product_key ?? "").trim();
+      const { rows } = await dbQuery<{ product_key: string | null }>(
+        `select product_key from ${TABLE} where id::text = $1 limit 1`,
+        [modelId],
+      );
+      const pk = String(rows[0]?.product_key ?? "").trim();
       if (pk) effectiveProductKey = pk;
     }
 
@@ -145,14 +118,10 @@ export async function POST(req: NextRequest) {
     }
 
     // Update all variants for the product so any row can provide the preset later.
-    const { error } = await supabase
-      .from(TABLE)
-      .update({ default_decal: body.decal })
-      .eq("product_key", effectiveProductKey);
-
-    if (error) {
-      return NextResponse.json({ ok: false, error: error.message ?? "Failed to save decal preset" }, { status: 502 });
-    }
+    await dbQuery(
+      `update ${TABLE} set default_decal = $1::jsonb where product_key = $2`,
+      [JSON.stringify(body.decal), effectiveProductKey],
+    );
 
     return NextResponse.json({ ok: true });
   } catch (err) {

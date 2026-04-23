@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerSupabaseAdminClient } from "@/lib/supabase";
-
-const TABLE = "main_feedback";
+import { dbQuery } from "@/lib/db";
 
 type FeedbackPayload = {
   message: string;
@@ -29,17 +27,11 @@ export async function POST(req: NextRequest) {
   const referer = req.headers.get("referer")?.slice(0, 1000) ?? null;
 
   try {
-    const supabase = createServerSupabaseAdminClient();
-    const { error } = await supabase.from(TABLE).insert({
-      message,
-      path,
-      user_agent: userAgent,
-      referer,
-    });
-
-    if (error) {
-      return NextResponse.json({ ok: false, error: error.message }, { status: 502 });
-    }
+    await dbQuery(
+      `insert into main_feedback (message, path, user_agent, referer)
+       values ($1, $2, $3, $4)`,
+      [message, path, userAgent, referer],
+    );
 
     return NextResponse.json({ ok: true });
   } catch (err) {

@@ -24,6 +24,7 @@ export default function AllProductsClient(props: {
   initialProducts: LibraryProduct[];
   initialNextCursor: string | null;
 }) {
+  const scrollRootRef = useRef<HTMLElement | null>(null);
   const [query, setQuery] = useState("");
   const [products, setProducts] = useState<LibraryProduct[]>(props.initialProducts);
   const [isLoading, setIsLoading] = useState(false);
@@ -132,7 +133,9 @@ export default function AllProductsClient(props: {
           .catch((e) => setError(e instanceof Error ? e.message : "Failed to load products"))
           .finally(() => setIsLoadingMore(false));
       },
-      { root: null, rootMargin: "600px 0px", threshold: 0.01 },
+      // Important: the page scrolls inside the <main> container (overflow-y-auto),
+      // so the observer root must be that scroll container (not the viewport).
+      { root: scrollRootRef.current, rootMargin: "600px 0px", threshold: 0.01 },
     );
 
     observer.observe(el);
@@ -140,7 +143,12 @@ export default function AllProductsClient(props: {
   }, [isLoading, isLoadingMore, nextCursor]);
 
   return (
-    <main className="h-full overflow-y-auto hide-scrollbar mx-auto w-full max-w-[1600px] px-3 py-4 sm:px-4 md:px-6 md:py-6">
+    <main
+      ref={(node) => {
+        scrollRootRef.current = node;
+      }}
+      className="h-full overflow-y-auto hide-scrollbar mx-auto w-full max-w-[1600px] px-3 py-4 sm:px-4 md:px-6 md:py-6"
+    >
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-lg font-semibold text-white">All Products</h1>

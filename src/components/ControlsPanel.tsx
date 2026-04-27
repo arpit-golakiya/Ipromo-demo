@@ -10,6 +10,40 @@ import type { LibraryItem, LibraryProduct } from "@/hooks/useConfiguratorState";
 // warn users if the share link becomes too long.
 const LOGO_MAX_PX = 1024;
 const LOGO_MAX_PX_ENHANCED = 4096;
+// Add transparent margin around raster logos so projection onto curved models
+// doesn't clip the design near the edges.
+const LOGO_SAFE_MARGIN_FRAC = 0.14;
+
+async function padLogoWithTransparentMargin(dataUrl: string, marginFrac = LOGO_SAFE_MARGIN_FRAC): Promise<string> {
+  if (dataUrl.startsWith("data:image/svg")) return dataUrl;
+  const m = Number.isFinite(marginFrac) ? Math.max(0, Math.min(0.45, marginFrac)) : LOGO_SAFE_MARGIN_FRAC;
+
+  return new Promise<string>((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const w = Math.max(1, img.naturalWidth);
+      const h = Math.max(1, img.naturalHeight);
+      const outW = Math.max(1, Math.round(w * (1 + 2 * m)));
+      const outH = Math.max(1, Math.round(h * (1 + 2 * m)));
+
+      const canvas = document.createElement("canvas");
+      canvas.width = outW;
+      canvas.height = outH;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { resolve(dataUrl); return; }
+
+      // Preserve alpha; don't paint a background.
+      ctx.clearRect(0, 0, outW, outH);
+      const dx = Math.round((outW - w) / 2);
+      const dy = Math.round((outH - h) / 2);
+      ctx.drawImage(img, dx, dy, w, h);
+
+      resolve(canvas.toDataURL("image/png"));
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
 
 async function compressLogoImage(dataUrl: string, maxPx = LOGO_MAX_PX): Promise<string> {
   if (dataUrl.startsWith("data:image/svg")) return dataUrl;
@@ -318,6 +352,9 @@ export function ControlsPanel({
         }
 
         // Step 4: compress to keep decal texture size reasonable
+        // Step 4: add transparent padding to prevent edge clipping on curved models
+        dataUrl = await padLogoWithTransparentMargin(dataUrl);
+        // Step 5: compress to keep decal texture size reasonable
         const compressed = await compressLogoImage(dataUrl, maxPx);
         onLogoDataUrlChange(compressed);
       })()
@@ -339,6 +376,7 @@ export function ControlsPanel({
                   return bgRemoved;
                 }
               })
+              .then((result) => padLogoWithTransparentMargin(result))
               .then((result) => compressLogoImage(result, maxPx))
               .then((result) => onLogoDataUrlChange(result))
               .finally(() => {
@@ -373,6 +411,7 @@ export function ControlsPanel({
             next = res;
           }
         }
+        next = await padLogoWithTransparentMargin(next);
         const compressed = await compressLogoImage(next, maxPx);
         onLogoDataUrlChange(compressed);
       })()
@@ -425,7 +464,9 @@ export function ControlsPanel({
         }
       }
 
-      // Step 3: compress for decal texture
+      // Step 3: add transparent padding so edges don't clip on curved surfaces
+      dataUrl = await padLogoWithTransparentMargin(dataUrl);
+      // Step 4: compress for decal texture
       setLogoProcessingLabel("Optimizing logo…");
       const compressed = await compressLogoImage(dataUrl, maxPx);
       if (cancelled) return;

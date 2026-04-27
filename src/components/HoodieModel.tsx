@@ -288,7 +288,10 @@ export function HoodieModel({
       // Too big -> may project onto inner/back faces.
       // This value is intentionally larger to better follow curved cloth,
       // but still tied to the logo size so it doesn't explode.
-      const projectorDepth = Math.max(0.03, baseScale * 0.80);
+      // For highly curved products (e.g., rounded bottles), a deeper projection volume
+      // reduces edge clipping of wide logos.
+      const bboxZ = decalBBoxSize?.z ?? 0;
+      const projectorDepth = Math.max(0.06, baseScale * 1.35, bboxZ * 0.12);
       const rotation: [number, number, number] = [...decal.rotation];
       return {
         position: decalGeoBBox ? [

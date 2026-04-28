@@ -49,12 +49,14 @@ export async function ensureAuthTables(): Promise<void> {
       is_admin boolean not null default false,
       enhance_calls_date date,
       enhance_calls_count integer not null default 0,
+      enhance_daily_limit integer,
       created_at timestamptz not null default now()
     );
   `);
 
   // Backfill column for existing installs (safe no-op if already present).
   await dbQuery(`alter table users add column if not exists is_admin boolean not null default false;`);
+  await dbQuery(`alter table users add column if not exists enhance_daily_limit integer;`);
 
   await dbQuery(`
     create table if not exists user_sessions (
@@ -302,4 +304,115 @@ export async function getEnhanceQuotaForUser(userId: string): Promise<{
   const limit = 3;
   const remainingToday = Math.max(0, limit - usedToday);
   return { limit, usedToday, remainingToday, dateUtc: today };
+}
+
+export async function consumeEnhanceDailyLimitIfSetOrThrow(
+  userId: string,
+): Promise<{ limit: number | null; usedToday: number; remainingToday: number | null; dateUtc: string }> {
+  await ensureAuthTables();
+  const today = todayUtcDateString();
+
+  return await dbWithClient(async (client) => {
+    await client.query("begin");
+    try {
+      const { rows } = await client.query<{
+        enhance_daily_limit: number | null;
+        enhance_calls_date: string | null;
+        enhance_calls_count: number;
+      }>(
+        `
+        select enhance_daily_limit,
+               enhance_calls_date::text as enhance_calls_date,
+               enhance_calls_count
+        from users
+        where id = $1::bigint
+        for update
+        `,
+        [userId],
+      );
+
+      const row = rows[0];
+      if (!row) throw new Error("User not found");
+
+      const limitRaw = row.enhance_daily_limit;
+      if (limitRaw === null || typeof limitRaw !== "number") {
+        await client.query("commit");
+        return { limit: null, usedToday: 0, remainingToday: null, dateUtc: today };
+      }
+
+      const limit = Math.trunc(Number(limitRaw));
+      if (!Number.isFinite(limit) || limit <= 0) {
+        await client.query("commit");
+        return { limit: null, usedToday: 0, remainingToday: null, dateUtc: today };
+      }
+
+      const isSameDay = row.enhance_calls_date === today;
+      const usedToday = isSameDay ? Math.max(0, Math.trunc(Number(row.enhance_calls_count ?? 0))) : 0;
+
+      if (usedToday >= limit) throw new Error("Enhance limit reached");
+
+      const nextUsed = usedToday + 1;
+      await client.query(
+        `
+        update users
+        set enhance_calls_date = $2::date,
+            enhance_calls_count = $3
+        where id = $1::bigint
+        `,
+        [userId, today, nextUsed],
+      );
+      await client.query("commit");
+      return {
+        limit,
+        usedToday: nextUsed,
+        remainingToday: Math.max(0, limit - nextUsed),
+        dateUtc: today,
+      };
+    } catch (e) {
+      await client.query("rollback");
+      throw e;
+    }
+  });
+}
+
+export async function getEnhanceDailyLimitStatusForUser(
+  userId: string,
+): Promise<{ limit: number | null; usedToday: number; remainingToday: number | null; dateUtc: string }> {
+  await ensureAuthTables();
+  const today = todayUtcDateString();
+  const { rows } = await dbQuery<{
+    enhance_daily_limit: number | null;
+    enhance_calls_date: string | null;
+    enhance_calls_count: number;
+  }>(
+    `
+    select enhance_daily_limit,
+           enhance_calls_date::text as enhance_calls_date,
+           enhance_calls_count
+    from users
+    where id = $1::bigint
+    limit 1
+    `,
+    [userId],
+  );
+  const row = rows[0];
+  if (!row) return { limit: null, usedToday: 0, remainingToday: null, dateUtc: today };
+
+  const limitRaw = row.enhance_daily_limit;
+  if (limitRaw === null || typeof limitRaw !== "number") {
+    return { limit: null, usedToday: 0, remainingToday: null, dateUtc: today };
+  }
+  const limit = Math.trunc(Number(limitRaw));
+  if (!Number.isFinite(limit) || limit <= 0) {
+    return { limit: null, usedToday: 0, remainingToday: null, dateUtc: today };
+  }
+
+  const isSameDay = row.enhance_calls_date === today;
+  const usedToday = isSameDay ? Math.max(0, Math.trunc(Number(row.enhance_calls_count ?? 0))) : 0;
+  return {
+    limit,
+    usedToday,
+    remainingToday: Math.max(0, limit - usedToday),
+    dateUtc: today,
+  };
 }

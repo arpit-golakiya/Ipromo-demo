@@ -4,7 +4,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { cookies } from "next/headers";
-import { getUserFromSessionToken } from "@/lib/auth";
+import { consumeEnhanceDailyLimitIfSetOrThrow, getUserFromSessionToken } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -93,13 +93,24 @@ export async function POST(req: Request) {
     );
   }
 
-  // Require auth before doing any OpenAI work.
+  // Require auth (and enforce per-user daily limit if set) before doing any OpenAI work.
   try {
     const cookieStore = await cookies();
     const token = cookieStore.get("ipromo_session")?.value ?? "";
     const user = token ? await getUserFromSessionToken(token) : null;
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  } catch {
+
+    // Unlimited by default. If `users.enhance_daily_limit` is set (non-null), it enforces per UTC day.
+    if (!user.isAdmin) {
+      const quota = await consumeEnhanceDailyLimitIfSetOrThrow(user.id);
+      (req as unknown as { __ipromo_enhance_remaining_today__?: number | null })
+        .__ipromo_enhance_remaining_today__ = quota.remainingToday;
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Unauthorized";
+    if (/enhance limit reached/i.test(msg)) {
+      return NextResponse.json({ error: "Enhance limit reached" }, { status: 429 });
+    }
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -188,9 +199,14 @@ export async function POST(req: Request) {
       saved = null;
     }
 
+    const enhanceRemainingToday =
+      (req as unknown as { __ipromo_enhance_remaining_today__?: number | null })
+        .__ipromo_enhance_remaining_today__;
+
     return NextResponse.json({
       dataUrl: `data:image/png;base64,${b64}`,
       ...(saved ? { savedPath: saved.absPath, publicUrl: saved.publicUrl } : {}),
+      ...(typeof enhanceRemainingToday === "number" ? { enhanceRemainingToday } : {}),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "OpenAI request failed";

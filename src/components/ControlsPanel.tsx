@@ -134,16 +134,26 @@ async function enhanceLogoViaApi(
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
+    if (res.status === 429) {
+      if (typeof onRemainingToday === "function") onRemainingToday(0);
+      throw new Error("Enhance limit reached. Please contact an admin.");
+    }
     throw new Error(`enhance-logo failed: HTTP ${res.status}${text ? ` — ${text.slice(0, 200)}` : ""}`);
   }
 
-  const json = (await res.json()) as { dataUrl?: unknown; enhanceRemainingToday?: unknown };
+  const json = (await res.json()) as {
+    dataUrl?: unknown;
+    enhanceRemaining?: unknown;
+    enhanceRemainingToday?: unknown;
+  };
   const next = typeof json?.dataUrl === "string" ? json.dataUrl : null;
   if (!next || !next.startsWith("data:image/")) {
     throw new Error("enhance-logo failed: invalid response payload");
   }
-  if (typeof json?.enhanceRemainingToday === "number" && typeof onRemainingToday === "function") {
-    onRemainingToday(json.enhanceRemainingToday);
+  const remaining =
+    typeof json?.enhanceRemainingToday === "number" ? json.enhanceRemainingToday : null;
+  if (typeof remaining === "number" && typeof onRemainingToday === "function") {
+    onRemainingToday(remaining);
   }
   return next;
 }
@@ -251,6 +261,7 @@ export function ControlsPanel({
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [removeWhiteBg, setRemoveWhiteBg] = useState(true);
   const [increaseLogoQuality, setIncreaseLogoQuality] = useState(false);
+  const [enhanceRemaining, setEnhanceRemaining] = useState<number | null>(null);
   const [isLogoProcessing, setIsLogoProcessing] = useState(false);
   const [logoProcessingLabel, setLogoProcessingLabel] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -259,14 +270,37 @@ export function ControlsPanel({
   const originalLogoDataUrlRef = useRef<string | null>(null);
   const lastAutoEnhancedSourceRef = useRef<string | null>(null);
   const autoEnhanceInFlightRef = useRef(false);
+  const enhanceBlocked = typeof enhanceRemaining === "number" && Math.trunc(enhanceRemaining) <= 0;
 
   function applyEnhanceRemaining(remaining: number) {
-    void remaining;
+    const next = Number.isFinite(remaining) ? Math.max(0, Math.trunc(remaining)) : null;
+    setEnhanceRemaining(next);
+    if (typeof next === "number" && next <= 0) setIncreaseLogoQuality(false);
   }
 
   useEffect(() => {
     setLocalQuery(libraryQuery);
   }, [libraryQuery]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/auth/me", { cache: "no-store" });
+        const json: unknown = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        const enhance = (json as { enhance?: unknown } | null)?.enhance;
+        const remaining = (enhance as { remainingToday?: unknown } | null)?.remainingToday;
+        if (typeof remaining === "number") applyEnhanceRemaining(remaining);
+        else setEnhanceRemaining(null);
+      } catch {
+        if (!cancelled) setEnhanceRemaining(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     // Allow a manual retry: toggling Enhance OFF -> ON should re-attempt.
@@ -697,12 +731,15 @@ export function ControlsPanel({
           {/* Background removal toggle */}
           <div className={`flex items-center gap-3 text-xs text-zinc-400 select-none ${isLogoProcessing ? "opacity-60 pointer-events-none" : ""}`}>
             <label
-              className="flex cursor-pointer items-center gap-1.5"
+              className={`flex items-center gap-1.5 ${enhanceBlocked && !increaseLogoQuality ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
+              title={enhanceBlocked && !increaseLogoQuality ? "Enhance limit reached" : undefined}
             >
               <div
                 role="checkbox"
                 aria-checked={increaseLogoQuality}
+                aria-disabled={enhanceBlocked && !increaseLogoQuality}
                 onClick={() => {
+                  if (enhanceBlocked && !increaseLogoQuality) return;
                   setIncreaseLogoQuality((v) => !v);
                 }}
                 className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${increaseLogoQuality ? "bg-blue-600" : "bg-zinc-600"
@@ -731,6 +768,11 @@ export function ControlsPanel({
               Remove white bg
             </label>
           </div>
+          {typeof enhanceRemaining === "number" ? (
+            <span className="text-[11px] text-zinc-500">
+              Remaining enhances: {Math.max(0, Math.trunc(enhanceRemaining))} for the day
+            </span>
+          ) : null}
         </div>
 
         <div

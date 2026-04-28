@@ -24,9 +24,10 @@ export default function AllProductsClient(props: {
   initialProducts: LibraryProduct[];
   initialNextCursor: string | null;
 }) {
+  const { initialProducts, initialNextCursor } = props;
   const scrollRootRef = useRef<HTMLElement | null>(null);
   const [query, setQuery] = useState("");
-  const [products, setProducts] = useState<LibraryProduct[]>(props.initialProducts);
+  const [products, setProducts] = useState<LibraryProduct[]>(initialProducts);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +35,7 @@ export default function AllProductsClient(props: {
   const [visibleVariantsByProduct, setVisibleVariantsByProduct] = useState<Record<string, number>>(
     {},
   );
-  const [nextCursor, setNextCursor] = useState<string | null>(props.initialNextCursor);
+  const [nextCursor, setNextCursor] = useState<string | null>(initialNextCursor);
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const activeQueryRef = useRef<string>("");
@@ -77,12 +78,12 @@ export default function AllProductsClient(props: {
     activeQueryRef.current = q;
 
     // If we server-rendered the initial (empty) query, don't refetch it; just restore it.
-    if (q === "" && props.initialProducts.length > 0) {
+    if (q === "" && initialProducts.length > 0) {
       setError(null);
       setIsLoading(false);
       setIsLoadingMore(false);
-      setProducts(props.initialProducts);
-      setNextCursor(props.initialNextCursor);
+      setProducts(initialProducts);
+      setNextCursor(initialNextCursor);
       return;
     }
 
@@ -109,7 +110,7 @@ export default function AllProductsClient(props: {
       mounted = false;
       clearTimeout(debounce);
     };
-  }, [query, props.initialProducts.length]);
+  }, [query, initialNextCursor, initialProducts]);
 
   const totalVariants = useMemo(
     () => products.reduce((sum, p) => sum + (p.variants?.length ?? 0), 0),

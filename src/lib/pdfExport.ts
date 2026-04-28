@@ -23,6 +23,18 @@ async function fetchAsDataUrl(url: string): Promise<string | null> {
   }
 }
 
+type PdfGStateCtor = new (opts: { opacity: number }) => unknown;
+type PdfWithGState = {
+  GState?: PdfGStateCtor;
+  setGState?: (state: unknown) => void;
+};
+
+function hasGState(pdf: unknown): pdf is PdfWithGState & { GState: PdfGStateCtor; setGState: (state: unknown) => void } {
+  if (typeof pdf !== "object" || pdf === null) return false;
+  const p = pdf as PdfWithGState;
+  return typeof p.GState === "function" && typeof p.setGState === "function";
+}
+
 /** Measure an image data URL and return { width, height } in pixels. */
 function measureImage(dataUrl: string): Promise<{ w: number; h: number }> {
   return new Promise((resolve) => {
@@ -166,4 +178,165 @@ export async function downloadConfiguratorPdf(
   // ── Save ──────────────────────────────────────────────────────────────────
   const slug = productName.replace(/\s+/g, "-").toLowerCase();
   pdf.save(`${slug}-ipromo-preview.pdf`);
+}
+
+type LogoPositionLike = { x?: number; y?: number; width?: number; height?: number; rotation?: number };
+type TemplateImageLike = { url: string; title?: string | null; logo_position?: LogoPositionLike | null };
+type TemplatePageLike = { productname: string; images: TemplateImageLike[] };
+
+function safeBasenameFromUrl(url: string) {
+  try {
+    const u = new URL(url);
+    const base = u.pathname.split("/").pop() || "image";
+    return decodeURIComponent(base).replace(/\.[a-zA-Z0-9]+$/, "");
+  } catch {
+    const base = (url.split("?")[0] ?? "").split("#")[0].split("/").pop() || "image";
+    return base.replace(/\.[a-zA-Z0-9]+$/, "");
+  }
+}
+
+function safeCaption(img: { title?: string | null; url: string }) {
+  if (img.title?.trim()) return img.title.trim();
+  return safeBasenameFromUrl(img.url);
+}
+
+function normalizeUnit(v: number): number {
+  if (!Number.isFinite(v)) return 0;
+  if (v > 1.5) return v / 100;
+  return v;
+}
+
+function describeImage(img: { url: string; logo_position?: LogoPositionLike | null }) {
+  const name = safeBasenameFromUrl(img.url);
+  const p = img.logo_position ?? {};
+  const x = typeof p.x === "number" ? Math.round(normalizeUnit(p.x) * 100) : null;
+  const y = typeof p.y === "number" ? Math.round(normalizeUnit(p.y) * 100) : null;
+  const w = typeof p.width === "number" ? Math.round(normalizeUnit(p.width) * 100) : null;
+  const h = typeof p.height === "number" ? Math.round(normalizeUnit(p.height) * 100) : null;
+  const r = typeof p.rotation === "number" ? Math.round(p.rotation) : 0;
+
+  const parts: string[] = [];
+  parts.push(name);
+  if (x !== null && y !== null) parts.push(`logo at ${x}%, ${y}%`);
+  if (w !== null && h !== null) parts.push(`size ${w}%×${h}%`);
+  if (r) parts.push(`rot ${r}°`);
+  return parts.join(" • ");
+}
+
+export async function downloadTemplatePdf(opts: {
+  templateName: string;
+  pages: TemplatePageLike[];
+  logoDataUrl: string;
+}): Promise<void> {
+  const { templateName, pages, logoDataUrl } = opts;
+
+  const { compositeToDataUrl } = await import("@/lib/imageComposite.client");
+  const { jsPDF } = await import("jspdf");
+
+  // A4 in points (jsPDF "pt" units).
+  const A4_W = 595.28;
+  const A4_H = 841.89;
+  const MARGIN = 34;
+  const HEADER_H = 52;
+  const GRID_GAP = 24;
+  const RIGHT_COL_Y_OFFSET = 20;
+
+  const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+
+  for (let pi = 0; pi < pages.length; pi++) {
+    const page = pages[pi]!;
+    if (pi > 0) pdf.addPage();
+
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(14);
+    pdf.setTextColor(20, 20, 20);
+    pdf.text(page.productname, A4_W / 2, MARGIN + 20, { align: "center" });
+
+    pdf.setDrawColor(220, 220, 220);
+    pdf.setLineWidth(0.75);
+    pdf.line(MARGIN, MARGIN + 34, A4_W - MARGIN, MARGIN + 34);
+
+    const gridX = MARGIN;
+    const gridY = MARGIN + HEADER_H;
+    const gridW = A4_W - 2 * MARGIN;
+    const gridH = A4_H - gridY - MARGIN;
+
+    type Tile = { x: number; y: number; w: number; h: number };
+    const tilesStyleB = (count: number): Tile[] => {
+      if (count <= 1) return [{ x: gridX, y: gridY, w: gridW, h: gridH }];
+      if (count === 2) {
+        const w = (gridW - GRID_GAP) / 2;
+        return [
+          { x: gridX, y: gridY, w, h: gridH },
+          { x: gridX + w + GRID_GAP, y: gridY + RIGHT_COL_Y_OFFSET, w, h: gridH },
+        ];
+      }
+
+      const w = (gridW - GRID_GAP) / 2;
+      const h = (gridH - GRID_GAP) / 2;
+      return [
+        { x: gridX, y: gridY, w, h },
+        { x: gridX + w + GRID_GAP, y: gridY + RIGHT_COL_Y_OFFSET, w, h },
+        { x: gridX, y: gridY + h + GRID_GAP, w, h },
+        { x: gridX + w + GRID_GAP, y: gridY + h + GRID_GAP + RIGHT_COL_Y_OFFSET, w, h },
+      ].slice(0, count);
+    };
+
+    const imagesToRender = (page.images ?? []).slice(0, 4);
+    const tiles = tilesStyleB(imagesToRender.length).slice(0, imagesToRender.length);
+
+    for (let ii = 0; ii < imagesToRender.length; ii++) {
+      const img = imagesToRender[ii]!;
+      const tile = tiles[ii]!;
+      const { x, y, w, h } = tile;
+
+      try {
+        const dataUrl = await compositeToDataUrl(img.url, logoDataUrl, img.logo_position ?? null, 1600);
+
+        const props = pdf.getImageProperties(dataUrl);
+        const iw = props.width || 1;
+        const ih = props.height || 1;
+        const scale = Math.min(w / iw, h / ih);
+        const drawW = iw * scale;
+        const drawH = ih * scale;
+        const dx = x + (w - drawW) / 2;
+        const dy = y + (h - drawH) / 2;
+
+        pdf.addImage(dataUrl, "PNG", dx, dy, drawW, drawH);
+
+        const caption = safeCaption(img) || describeImage(img);
+        const capH = 22;
+        const capY = dy + drawH - capH;
+
+        if (hasGState(pdf)) {
+          const GState = pdf.GState;
+          pdf.setGState(new GState({ opacity: 0.2 }));
+          pdf.setFillColor(0, 0, 0);
+          pdf.rect(dx, capY, drawW, capH, "F");
+          pdf.setGState(new GState({ opacity: 1 }));
+        } else {
+          pdf.setFillColor(45, 45, 45);
+          pdf.rect(dx, capY, drawW, capH, "F");
+        }
+
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(9);
+        pdf.setTextColor(255, 255, 255);
+        pdf.text(caption, dx + drawW / 2, capY + capH / 2 + 0.5, {
+          align: "center",
+          baseline: "middle",
+          maxWidth: drawW - 16,
+        });
+      } catch {
+        pdf.setFillColor(235, 235, 235);
+        pdf.rect(x, y, w, h, "F");
+        pdf.setFontSize(9);
+        pdf.setTextColor(160, 160, 160);
+        pdf.text("Image unavailable", x + w / 2, y + h / 2, { align: "center", baseline: "middle" });
+      }
+    }
+  }
+
+  const safeName = templateName.replace(/\s+/g, "-");
+  pdf.save(`${safeName}-branded.pdf`);
 }

@@ -16,6 +16,7 @@ export function AppNav() {
   const pathname = usePathname();
   const router = useRouter();
   const [me, setMe] = useState<{ id: string; username: string; email: string } | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   const shouldHide =
     (pathname?.startsWith("/s/") ?? false) || pathname === "/login" || pathname === "/signup";
@@ -51,6 +52,10 @@ export function AppNav() {
       cancelled = true;
     };
   }, [shouldHide]);
+
+  useEffect(() => {
+    setProfileOpen(false);
+  }, [pathname]);
 
   const initials = useMemo(() => {
     const name = (me?.username ?? "").trim();
@@ -92,6 +97,12 @@ export function AppNav() {
           <Link href="/" className={routeClass(pathname === "/")}>
             Design
           </Link>
+          <Link
+            href="/lookbook"
+            className={routeClass(pathname?.startsWith("/lookbook") ?? false)}
+          >
+            Lookbook
+          </Link>
         </div>
         <div className="flex items-center gap-1">
           <Link
@@ -102,17 +113,38 @@ export function AppNav() {
           </Link>
 
           {me ? (
-            <div className="group relative">
+            <div
+              className="relative"
+              onMouseLeave={() => setProfileOpen(false)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setProfileOpen(false);
+              }}
+              onBlurCapture={(e) => {
+                const next = e.relatedTarget as Node | null;
+                if (next && e.currentTarget.contains(next)) return;
+                setProfileOpen(false);
+              }}
+            >
               <button
                 type="button"
                 aria-label="User profile"
+                aria-haspopup="menu"
+                aria-expanded={profileOpen}
+                onMouseEnter={() => setProfileOpen(true)}
+                onClick={() => setProfileOpen((v) => !v)}
                 className="ml-1 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/10 text-xs font-semibold text-white transition hover:bg-white/20"
               >
                 {initials}
               </button>
 
-              <div className="pointer-events-none absolute right-0 top-full z-50 mt-2 w-64 translate-y-1 opacity-0 transition group-hover:translate-y-0 group-hover:opacity-100">
-                <div className="pointer-events-auto rounded-xl border border-white/10 bg-zinc-950/95 p-3 shadow-xl backdrop-blur">
+              <div
+                className={`absolute right-0 top-full z-50 w-64 transition ${profileOpen
+                  ? "pointer-events-auto translate-y-0 opacity-100"
+                  : "pointer-events-none translate-y-1 opacity-0"
+                  }`}
+                onMouseEnter={() => setProfileOpen(true)}
+              >
+                <div className="rounded-xl border border-white/10 bg-zinc-950/95 p-3 shadow-xl backdrop-blur">
                   <div className="px-1">
                     <div className="text-sm font-semibold text-white">{me.username}</div>
                     <div className="mt-0.5 truncate text-xs text-zinc-300">{me.email}</div>

@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
+import { cookies } from "next/headers";
+import { consumeEnhanceQuotaOrThrow, getUserFromSessionToken } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -91,6 +93,28 @@ export async function POST(req: Request) {
     );
   }
 
+  // Require auth + enforce quota (3/day/user) before doing any OpenAI work.
+  try {
+    const cookieStore = await cookies();
+    const token = cookieStore.get("ipromo_session")?.value ?? "";
+    const user = token ? await getUserFromSessionToken(token) : null;
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    // Admin users can enhance logos unlimited times (no quota restrictions).
+    if (!user.isAdmin) {
+      const quota = await consumeEnhanceQuotaOrThrow(user.id);
+      // Expose remaining calls as a response hint (optional, safe).
+      (req as unknown as { __ipromo_quota_remaining__?: number }).__ipromo_quota_remaining__ =
+        quota.remaining;
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Unauthorized";
+    if (/limit/i.test(msg)) {
+      return NextResponse.json({ error: msg }, { status: 429 });
+    }
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   // Accept either:
   // - multipart/form-data with field "image" (File)
   // - application/json { dataUrl: "data:image/..;base64,..." }
@@ -176,13 +200,16 @@ export async function POST(req: Request) {
       saved = null;
     }
 
+    const quotaRemaining =
+      (req as unknown as { __ipromo_quota_remaining__?: number }).__ipromo_quota_remaining__;
+
     return NextResponse.json({
       dataUrl: `data:image/png;base64,${b64}`,
       ...(saved ? { savedPath: saved.absPath, publicUrl: saved.publicUrl } : {}),
+      ...(typeof quotaRemaining === "number" ? { enhanceRemainingToday: quotaRemaining } : {}),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "OpenAI request failed";
     return NextResponse.json({ error: msg }, { status: 502 });
   }
 }
-

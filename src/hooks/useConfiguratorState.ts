@@ -179,11 +179,21 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
       return;
     }
 
+    // Derive a stable "color label" from the selected productName.
+    // Expected format: "Product — Color". If not present, omit.
+    const colorLabel = (() => {
+      const raw = String(productName ?? "");
+      const parts = raw.split("—");
+      const right = (parts[1] ?? "").trim();
+      return right ? right : null;
+    })();
+
     const loadPreset = async () => {
       try {
         const params = new URLSearchParams();
         if (modelId) params.set("modelId", modelId);
         if (pk) params.set("productKey", pk);
+        if (colorLabel) params.set("colorLabel", colorLabel);
         const res = await fetch(`/api/decal-presets?${params.toString()}`, {
           cache: "no-store",
         });
@@ -220,7 +230,7 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
     return () => {
       cancelled = true;
     };
-  }, [logoDataUrl, productKey, selectedModelId]);
+  }, [logoDataUrl, productKey, productName, selectedModelId]);
 
   const loadFromShareId = useCallback(async (shareId: string) => {
     if (!shareId || hydratedFromShare.current) return;

@@ -12,6 +12,17 @@ function parseModelId(raw: string | null): string | null {
   return id;
 }
 
+function parseColorLabel(raw: string | null): string | null {
+  if (raw == null) return null;
+  const s = raw
+    .replace(/[\u0000-\u001F\u007F]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!s) return null;
+  if (s.length > 140) return s.slice(0, 140).trim();
+  return s;
+}
+
 function isDecalConfig(v: unknown): v is DecalConfig {
   if (!v || typeof v !== "object") return false;
   const o = v as { position?: unknown; rotation?: unknown; scale?: unknown };
@@ -29,6 +40,7 @@ export async function GET(req: NextRequest) {
   const modelId = parseModelId(req.nextUrl.searchParams.get("modelId"));
   const productKeyRaw = (req.nextUrl.searchParams.get("productKey") ?? "").trim();
   const productKey = productKeyRaw.length > 0 && productKeyRaw.length <= 200 ? productKeyRaw : null;
+  const colorLabel = parseColorLabel(req.nextUrl.searchParams.get("colorLabel"));
 
   if (!modelId && !productKey) {
     return NextResponse.json(
@@ -57,15 +69,36 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const { rows } = await dbQuery<{ default_decal: unknown | null }>(
-      `select default_decal
-       from ${TABLE}
-       where product_key = $1 and default_decal is not null
-       limit 1`,
-      [effectiveProductKey],
-    );
+    // Prefer a color-specific preset when available; fallback to product-level.
+    const rows =
+      colorLabel
+        ? (
+            await dbQuery<{ default_decal: unknown | null }>(
+              `select default_decal
+               from ${TABLE}
+               where product_key = $1
+                 and default_decal is not null
+                 and lower(trim(coalesce(color_label, ''))) = lower(trim($2))
+               limit 1`,
+              [effectiveProductKey, colorLabel],
+            )
+          ).rows
+        : [];
 
-    const decal = rows[0]?.default_decal ?? null;
+    const fallbackRows =
+      rows.length > 0
+        ? rows
+        : (
+            await dbQuery<{ default_decal: unknown | null }>(
+              `select default_decal
+               from ${TABLE}
+               where product_key = $1 and default_decal is not null
+               limit 1`,
+              [effectiveProductKey],
+            )
+          ).rows;
+
+    const decal = fallbackRows[0]?.default_decal ?? null;
     return NextResponse.json({
       modelId: modelId ?? null,
       productKey: effectiveProductKey,
@@ -78,9 +111,14 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  let body: { modelId?: string; productKey?: string; decal?: unknown };
+  let body: { modelId?: string; productKey?: string; colorLabel?: string; decal?: unknown };
   try {
-    body = (await req.json()) as { modelId?: string; productKey?: string; decal?: unknown };
+    body = (await req.json()) as {
+      modelId?: string;
+      productKey?: string;
+      colorLabel?: string;
+      decal?: unknown;
+    };
   } catch {
     return NextResponse.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
   }
@@ -88,6 +126,7 @@ export async function POST(req: NextRequest) {
   const modelId = parseModelId(body?.modelId ?? null);
   const productKeyRaw = String(body?.productKey ?? "").trim();
   const productKey = productKeyRaw.length > 0 && productKeyRaw.length <= 200 ? productKeyRaw : null;
+  const colorLabel = parseColorLabel(body?.colorLabel ?? null);
 
   if (!modelId && !productKey) {
     return NextResponse.json(
@@ -117,11 +156,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Update all variants for the product so any row can provide the preset later.
-    await dbQuery(
-      `update ${TABLE} set default_decal = $1::jsonb where product_key = $2`,
-      [JSON.stringify(body.decal), effectiveProductKey],
-    );
+    // If a colorLabel is provided, save only for that variant; otherwise, save at product level.
+    if (colorLabel) {
+      await dbQuery(
+        `update ${TABLE}
+         set default_decal = $1::jsonb
+         where product_key = $2
+           and lower(trim(coalesce(color_label, ''))) = lower(trim($3))`,
+        [JSON.stringify(body.decal), effectiveProductKey, colorLabel],
+      );
+    } else {
+      // Update all variants for the product so any row can provide the preset later.
+      await dbQuery(
+        `update ${TABLE} set default_decal = $1::jsonb where product_key = $2`,
+        [JSON.stringify(body.decal), effectiveProductKey],
+      );
+    }
 
     return NextResponse.json({ ok: true });
   } catch (err) {

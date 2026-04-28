@@ -134,10 +134,6 @@ async function enhanceLogoViaApi(
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    if (res.status === 429 && typeof onRemainingToday === "function") onRemainingToday(0);
-    if (res.status === 429) {
-      throw new Error("Enhance limit reached (3/day). Try again tomorrow.");
-    }
     throw new Error(`enhance-logo failed: HTTP ${res.status}${text ? ` — ${text.slice(0, 200)}` : ""}`);
   }
 
@@ -255,10 +251,6 @@ export function ControlsPanel({
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [removeWhiteBg, setRemoveWhiteBg] = useState(true);
   const [increaseLogoQuality, setIncreaseLogoQuality] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [enhanceQuota, setEnhanceQuota] = useState<{ limit: number; remainingToday: number } | null>(
-    null,
-  );
   const [isLogoProcessing, setIsLogoProcessing] = useState(false);
   const [logoProcessingLabel, setLogoProcessingLabel] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -267,56 +259,14 @@ export function ControlsPanel({
   const originalLogoDataUrlRef = useRef<string | null>(null);
   const lastAutoEnhancedSourceRef = useRef<string | null>(null);
   const autoEnhanceInFlightRef = useRef(false);
-  const enhanceBlocked =
-    !isAdmin &&
-    !!enhanceQuota &&
-    Math.trunc(enhanceQuota.remainingToday) <= 0 &&
-    Math.trunc(enhanceQuota.limit) > 0;
 
   function applyEnhanceRemaining(remaining: number) {
-    setEnhanceQuota((q) => (q ? { ...q, remainingToday: remaining } : q));
-    // If the user exhausted the quota, force the toggle OFF so we don't keep retrying.
-    if (!isAdmin && remaining <= 0) setIncreaseLogoQuality(false);
+    void remaining;
   }
 
   useEffect(() => {
     setLocalQuery(libraryQuery);
   }, [libraryQuery]);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/auth/me", { cache: "no-store" });
-        const json: unknown = await res.json().catch(() => ({}));
-        if (cancelled) return;
-        const user = (json as { user?: unknown } | null)?.user;
-        const nextIsAdmin = Boolean((user as { isAdmin?: unknown } | null)?.isAdmin);
-        setIsAdmin(nextIsAdmin);
-        if (nextIsAdmin) {
-          // Admins are unlimited; don't show quota UI or block toggles.
-          setEnhanceQuota(null);
-          return;
-        }
-        const enhance = (json as { enhance?: unknown } | null)?.enhance;
-        const remainingToday = (enhance as { remainingToday?: unknown } | null)?.remainingToday;
-        const limit = (enhance as { limit?: unknown } | null)?.limit;
-        if (typeof remainingToday === "number" && typeof limit === "number") {
-          setEnhanceQuota({ limit, remainingToday });
-        } else {
-          setEnhanceQuota(null);
-        }
-      } catch {
-        if (!cancelled) {
-          setIsAdmin(false);
-          setEnhanceQuota(null);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     // Allow a manual retry: toggling Enhance OFF -> ON should re-attempt.
@@ -747,17 +697,12 @@ export function ControlsPanel({
           {/* Background removal toggle */}
           <div className={`flex items-center gap-3 text-xs text-zinc-400 select-none ${isLogoProcessing ? "opacity-60 pointer-events-none" : ""}`}>
             <label
-              className={`flex items-center gap-1.5 ${enhanceBlocked && !increaseLogoQuality ? "cursor-not-allowed opacity-60" : "cursor-pointer"
-                }`}
-              title={enhanceBlocked && !increaseLogoQuality ? "Daily enhance limit reached" : undefined}
+              className="flex cursor-pointer items-center gap-1.5"
             >
               <div
                 role="checkbox"
                 aria-checked={increaseLogoQuality}
-                aria-disabled={enhanceBlocked && !increaseLogoQuality}
                 onClick={() => {
-                  // Block turning ON when daily quota is exhausted.
-                  if (enhanceBlocked && !increaseLogoQuality) return;
                   setIncreaseLogoQuality((v) => !v);
                 }}
                 className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${increaseLogoQuality ? "bg-blue-600" : "bg-zinc-600"
@@ -786,11 +731,6 @@ export function ControlsPanel({
               Remove white bg
             </label>
           </div>
-          {enhanceQuota && !isAdmin ? (
-            <span className="text-[11px] text-zinc-500">
-              Remaining today: {Math.max(0, Math.trunc(enhanceQuota.remainingToday))}/{Math.max(1, Math.trunc(enhanceQuota.limit))}
-            </span>
-          ) : null}
         </div>
 
         <div

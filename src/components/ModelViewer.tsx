@@ -14,19 +14,19 @@ function ModelLoadFallback({ label }: { label?: string }) {
 
   return (
     <Html center>
-      <div className="pointer-events-none flex min-w-[220px] flex-col items-center gap-3 rounded-xl border border-white/10 bg-black/70 px-5 py-4 text-center text-white backdrop-blur-sm">
+      <div className="pointer-events-none flex min-w-[220px] flex-col items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 px-5 py-4 text-center text-zinc-100 backdrop-blur-sm">
         <svg className="h-7 w-7 animate-spin text-blue-400" viewBox="0 0 24 24" fill="none">
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
         </svg>
-        <p className="text-sm font-medium">{label ?? (active ? "Loading 3D model…" : "Preparing 3D view…")}</p>
-        <div className="w-48 overflow-hidden rounded-full bg-zinc-700">
+        <p className="text-sm font-medium text-zinc-900">{label ?? (active ? "Loading 3D model…" : "Preparing 3D view…")}</p>
+        <div className="w-48 overflow-hidden rounded-full bg-gray-200">
           <div
             className="h-2 rounded-full bg-blue-500 transition-all duration-300"
             style={{ width: `${shownProgress}%` }}
           />
         </div>
-        <p className="text-xs text-zinc-300">{Math.round(shownProgress)}%</p>
+        <p className="text-xs text-zinc-600">{Math.round(shownProgress)}%</p>
       </div>
     </Html>
   );
@@ -203,7 +203,7 @@ export function ModelViewer({
     <div
       ref={containerRef}
       id={captureId}
-      className="relative isolate box-border h-full min-h-[240px] w-full flex-1 overflow-hidden rounded-xl border border-white/10 bg-gradient-to-b from-zinc-900 to-black max-md:h-[min(52dvh,580px)] max-md:flex-none md:min-h-0"
+      className="relative isolate box-border h-full min-h-[240px] w-full flex-1 overflow-hidden rounded-xl bg-gradient-to-b from-zinc-900 to-black max-md:h-[min(52dvh,580px)] max-md:flex-none md:min-h-0"
     >
       {title ? (
         <div
@@ -254,30 +254,30 @@ export function ModelViewer({
 
       {/* Generation progress overlay */}
       {isGeneratingModel && (
-        <div className="pointer-events-none absolute inset-0 z-30 flex flex-col items-center justify-center gap-4 bg-black/70 backdrop-blur-sm">
+        <div className="pointer-events-none absolute inset-0 z-30 flex flex-col items-center justify-center gap-4 bg-white/75 backdrop-blur-sm">
           <div className="flex flex-col items-center gap-3 px-8 text-center">
             <svg className="h-8 w-8 animate-spin text-blue-400" viewBox="0 0 24 24" fill="none">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
             </svg>
-            <p className="text-sm font-medium text-white">Generating 3D model…</p>
-            <div className="w-48 overflow-hidden rounded-full bg-zinc-700">
+            <p className="text-sm font-medium text-slate-900">Generating 3D model…</p>
+            <div className="w-48 overflow-hidden rounded-full bg-slate-200">
               <div
                 className="h-2 rounded-full bg-blue-500 transition-all duration-500"
                 style={{ width: `${modelGenerationProgress ?? 0}%` }}
               />
             </div>
-            <p className="text-xs text-zinc-400">{modelGenerationProgress ?? 0}% complete</p>
+            <p className="text-xs text-slate-600">{modelGenerationProgress ?? 0}% complete</p>
           </div>
         </div>
       )}
 
       <p
-        className="pointer-events-none absolute bottom-3 left-3 z-20 max-w-[min(100%,20rem)] text-xs leading-snug text-zinc-500 transform-gpu"
+        className="pointer-events-none absolute bottom-3 left-3 z-20 max-w-[min(100%,20rem)] text-xs leading-snug text-slate-600 drop-shadow-[0_1px_1px_rgba(255,255,255,0.8)] transform-gpu"
         style={{ transform: "translateZ(0)" }}
       >
         {isLogoPlacementMode ? (
-          <span className="text-amber-300">
+          <span className="text-amber-700">
             Drag on the model to place your logo
           </span>
         ) : (

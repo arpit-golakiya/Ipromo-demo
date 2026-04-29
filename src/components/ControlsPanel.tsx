@@ -594,12 +594,12 @@ export function ControlsPanel({
   const rotateDeg = Math.round((decal.rotation[2] * 180) / Math.PI);
 
   return (
-    <aside className="flex h-auto min-h-0 flex-col gap-4 overflow-visible rounded-xl border border-white/10 bg-zinc-900/80 p-4 shadow-xl backdrop-blur-sm sm:gap-5 sm:p-5 md:h-full md:overflow-y-auto hide-scrollbar">
+    <aside className="flex h-auto min-h-0 flex-col gap-4 overflow-visible rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:gap-5 sm:p-5 md:h-full md:overflow-y-auto hide-scrollbar">
       <header>
-        <h1 className="text-lg font-semibold tracking-tight text-white">
+        <h1 className="text-lg font-semibold tracking-tight text-slate-900">
           {productName}
         </h1>
-        <p className="mt-1 text-sm text-zinc-400">
+        <p className="mt-1 text-sm text-slate-600">
           Search and load a prebuilt 3D product, then add your logo (upload or drag-and-drop).
         </p>
       </header>
@@ -608,14 +608,14 @@ export function ControlsPanel({
       <button
         type="button"
         onClick={onOpen2dPreview}
-        className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-zinc-100 transition hover:bg-white/10"
+        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50"
       >
         View 2D preview
       </button>
 
       {/* ── Product library ── */}
       <div className="flex flex-col gap-2">
-        <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+        <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
           Product library
         </span>
         <div className="flex flex-col gap-2 sm:flex-row">
@@ -626,14 +626,14 @@ export function ControlsPanel({
             onKeyDown={(e) => {
               if (e.key === "Enter") onSearchLibrary(localQuery);
             }}
-            className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-200 outline-none ring-blue-500/40 focus:ring-2"
+            className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-blue-500/30 placeholder:text-slate-400 focus:ring-2"
             placeholder="Search by name…"
           />
           <button
             type="button"
             disabled={isLoadingLibrary}
             onClick={() => onSearchLibrary(localQuery)}
-            className="w-full shrink-0 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+            className="w-full shrink-0 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
           >
             {isLoadingLibrary ? (
               <span className="flex items-center gap-1.5">
@@ -646,22 +646,22 @@ export function ControlsPanel({
             ) : "Search"}
           </button>
         </div>
-        {libraryError ? <p className="text-xs text-red-400">{libraryError}</p> : null}
+        {libraryError ? <p className="text-xs text-red-600">{libraryError}</p> : null}
       </div>
 
       {libraryProducts.length > 0 ? (
-        <div className="flex flex-col gap-2 rounded-lg border border-white/10 bg-black/20 p-3">
-          <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+        <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
             Results ({libraryProducts.length})
           </span>
           <div className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
             {libraryProducts.map((product) => (
               <details
                 key={product.product_name}
-                className="rounded-md border border-white/10 bg-black/25 px-2 py-1.5"
+                className="rounded-md border border-slate-200 bg-white px-2 py-1.5"
               >
-                <summary className="flex cursor-pointer list-none items-center gap-2 text-xs text-zinc-200">
-                  <div className="h-8 w-8 shrink-0 overflow-hidden rounded bg-black/30">
+                <summary className="flex cursor-pointer list-none items-center gap-2 text-xs text-slate-800">
+                  <div className="h-8 w-8 shrink-0 overflow-hidden rounded bg-slate-100">
                     {product.preview_image_url ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
@@ -672,7 +672,7 @@ export function ControlsPanel({
                     ) : null}
                   </div>
                   <span className="min-w-0 flex-1 truncate">{product.product_name}</span>
-                  <span className="shrink-0 text-[11px] text-zinc-400">
+                  <span className="shrink-0 text-[11px] text-slate-500">
                     {product.variants.length} color{product.variants.length === 1 ? "" : "s"}
                   </span>
                 </summary>
@@ -692,8 +692,8 @@ export function ControlsPanel({
                         type="button"
                         onClick={() => onSelectModel(item)}
                         className={`flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs transition ${active
-                          ? "border-indigo-500/50 bg-indigo-950/40 text-indigo-100"
-                          : "border-white/10 bg-black/25 text-zinc-200 hover:border-white/20 hover:bg-black/35"
+                          ? "border-blue-500/50 bg-blue-50/40 text-blue-900"
+                          : "border-gray-200 bg-gray-50 text-gray-900 hover:border-gray-300 hover:bg-gray-100"
                           }`}
                       >
                         <div className="h-7 w-7 shrink-0 overflow-hidden rounded bg-black/30">
@@ -704,7 +704,7 @@ export function ControlsPanel({
                         </div>
                         <span className="min-w-0 flex-1 truncate">{v.label}</span>
                         {active ? (
-                          <span className="shrink-0 text-[11px] text-indigo-200">Loaded</span>
+                          <span className="shrink-0 text-[11px] text-zinc-600">Loaded</span>
                         ) : null}
                       </button>
                     );
@@ -725,11 +725,11 @@ export function ControlsPanel({
 
       <div className="flex flex-col gap-2">
         <div className="flex flex-col gap-2">
-          <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+          <span className="text-xs font-medium uppercase tracking-wide text-gray-400">
             Logo (PNG / JPG / SVG)
           </span>
           {/* Background removal toggle */}
-          <div className={`flex items-center gap-3 text-xs text-zinc-400 select-none ${isLogoProcessing ? "opacity-60 pointer-events-none" : ""}`}>
+          <div className={`flex items-center gap-3 text-xs text-gray-400 select-none ${isLogoProcessing ? "opacity-60 pointer-events-none" : ""}`}>
             <label
               className={`flex items-center gap-1.5 ${enhanceBlocked && !increaseLogoQuality ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
               title={enhanceBlocked && !increaseLogoQuality ? "Enhance limit reached" : undefined}
@@ -769,7 +769,7 @@ export function ControlsPanel({
             </label>
           </div>
           {typeof enhanceRemaining === "number" ? (
-            <span className="text-[11px] text-zinc-500">
+            <span className="text-[11px] text-gray-400">
               Remaining enhances: {Math.max(0, Math.trunc(enhanceRemaining))} for the day
             </span>
           ) : null}
@@ -780,8 +780,8 @@ export function ControlsPanel({
           onDragLeave={handleLogoDragLeave}
           onDrop={handleLogoDrop}
           className={`relative rounded-lg border-2 border-dashed p-3 transition-colors ${logoDropActive
-            ? "border-blue-400 bg-blue-500/10"
-            : "border-white/15 bg-black/20"
+            ? "border-blue-400"
+            : "border-gray-200"
             }`}
         >
           {isLogoProcessing ? (
@@ -795,7 +795,7 @@ export function ControlsPanel({
               </p>
             </div>
           ) : null}
-          <p className="mb-2 text-center text-xs text-zinc-500">
+          <p className="mb-2 text-center text-xs text-gray-400">
             Drop a logo here or choose a file
           </p>
           <input
@@ -841,8 +841,8 @@ export function ControlsPanel({
                 disabled={isLogoProcessing}
                 onClick={() => onLogoPlacementModeChange(!isLogoPlacementMode)}
                 className={`flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${isLogoPlacementMode
-                  ? "border-amber-400/60 bg-amber-400/15 text-amber-300 hover:bg-amber-400/25"
-                  : "border-white/15 bg-white/5 text-zinc-300 hover:bg-white/10"
+                  ? "border-blue-400/60 bg-blue-50/40 text-blue-900 hover:bg-blue-50/50"
+                  : "border-gray-200 bg-gray-50 text-gray-900 hover:bg-gray-100"
                   }`}
               >
                 {isLogoProcessing
@@ -862,17 +862,17 @@ export function ControlsPanel({
             </div>
 
             {isLogoPlacementMode ? (
-              <div className="flex items-center justify-center gap-2 rounded-md border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
+              <div className="flex items-center justify-center gap-2 rounded-md border border-blue-400/20 bg-blue-50/40 px-3 py-2 text-xs text-blue-900">
                 <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-300 opacity-75" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-300" />
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-500 opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-300" />
                 </span>
                 Placement mode active — drag on the model
               </div>
             ) : null}
           </>
         ) : (
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-gray-400">
             {removeWhiteBg
               ? "White backgrounds will be removed automatically."
               : "Background will be kept as-is."}
@@ -880,8 +880,8 @@ export function ControlsPanel({
         )}
       </div>
 
-      <div className="flex flex-col gap-3 rounded-lg border border-white/5 bg-black/20 p-3">
-        <p className="text-xs text-zinc-500">
+      <div className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+        <p className="text-xs text-gray-400">
           Hold and drag on the product to move the logo. Use the sliders to
           adjust rotation and size.
         </p>
@@ -903,7 +903,7 @@ export function ControlsPanel({
             }}
             className="flex-1 accent-blue-500"
           />
-          <span className="w-10 text-right font-mono text-zinc-500">
+          <span className="w-10 text-right font-mono text-gray-600/80">
             {rotateDeg}°
           </span>
         </label>
@@ -921,13 +921,13 @@ export function ControlsPanel({
             }
             className="flex-1 accent-blue-500"
           />
-          <span className="w-10 text-right font-mono text-zinc-500">
+          <span className="w-10 text-right font-mono text-gray-600/80">
             {Math.round(decal.scale * 100)}%
           </span>
         </label>
       </div>
 
-      <div className="mt-auto flex flex-col gap-2 border-t border-white/10 pt-4">
+      <div className="mt-auto flex flex-col gap-2 border-t border-gray-200 pt-4">
         <button
           type="button"
           onClick={() => {
@@ -942,7 +942,7 @@ export function ControlsPanel({
         <button
           type="button"
           onClick={() => void handlePdf()}
-          className="rounded-lg border border-white/15 bg-white/5 px-4 py-2.5 text-sm font-medium text-zinc-100 transition hover:bg-white/10"
+          className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm font-medium text-gray-900 transition hover:bg-gray-100"
         >
           Download PDF
         </button>

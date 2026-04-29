@@ -10,7 +10,11 @@ type Template = {
   created_at: unknown | null;
 };
 
-export function LookbookTemplates() {
+export function LookbookTemplates({
+  hrefPrefix = "/lookbooks",
+}: {
+  hrefPrefix?: string;
+}) {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -55,7 +59,7 @@ export function LookbookTemplates() {
   const content = useMemo(() => {
     if (loading) {
       return (
-        <div className="mt-5 p-4 text-sm text-zinc-200">
+        <div className="mt-5 p-4 text-sm text-slate-600">
           Loading templates…
         </div>
       );
@@ -63,9 +67,9 @@ export function LookbookTemplates() {
 
     if (error) {
       return (
-        <div className="mt-5 p-4 text-sm text-red-200">
+        <div className="mt-5 p-4 text-sm text-red-700">
           Failed to load templates.{" "}
-          <span className="text-red-100/80">
+          <span className="text-red-700/80">
             ({error.length > 140 ? `${error.slice(0, 140)}…` : error})
           </span>
         </div>
@@ -74,7 +78,7 @@ export function LookbookTemplates() {
 
     if (templates.length === 0) {
       return (
-        <div className="mt-5 p-4 text-sm text-zinc-200">
+        <div className="mt-5 p-4 text-sm text-slate-600">
           No templates found.
         </div>
       );
@@ -88,11 +92,11 @@ export function LookbookTemplates() {
           return (
             <Link
               key={String(t.id)}
-              href={`/lookbook/${encodeURIComponent(String(t.id))}`}
-              className="group rounded-2xl border border-white/10 bg-zinc-900/60 p-4 transition hover:border-white/20 hover:bg-zinc-900/80"
+              href={`${hrefPrefix}/${encodeURIComponent(String(t.id))}`}
+              className="group rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
             >
               <div className="flex items-start justify-between gap-3">
-                <div className="truncate text-sm font-semibold text-white group-hover:text-white/95 min-w-0">
+                <div className="min-w-0 truncate text-sm font-semibold text-slate-900 group-hover:text-slate-900/90">
                   {name}
                 </div>
               </div>
@@ -101,7 +105,7 @@ export function LookbookTemplates() {
         })}
       </div>
     );
-  }, [error, loading, templates]);
+  }, [error, hrefPrefix, loading, templates]);
 
   return content;
 }

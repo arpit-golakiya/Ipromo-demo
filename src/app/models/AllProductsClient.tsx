@@ -153,8 +153,8 @@ export default function AllProductsClient(props: {
     >
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-lg font-semibold text-white">All Products</h1>
-          <p className="text-sm text-zinc-400">
+          <h1 className="text-lg font-semibold text-slate-900">All Products</h1>
+          <p className="text-sm text-slate-600">
             {products.length} product{products.length === 1 ? "" : "s"} · {totalVariants} color
             {totalVariants === 1 ? "" : "s"}
           </p>
@@ -164,14 +164,14 @@ export default function AllProductsClient(props: {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search product name..."
-          className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-200 outline-none ring-blue-500/40 focus:ring-2 md:w-96"
+          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-blue-500/30 placeholder:text-slate-400 focus:ring-2 md:w-96"
         />
       </div>
 
-      {error ? <p className="mb-3 text-sm text-red-400">{error}</p> : null}
-      {isLoading ? <p className="text-sm text-zinc-400">Loading products…</p> : null}
+      {error ? <p className="mb-3 text-sm text-red-600">{error}</p> : null}
+      {isLoading ? <p className="text-sm text-slate-600">Loading products…</p> : null}
       {!isLoading && products.length === 0 ? (
-        <p className="text-sm text-zinc-500">No products found.</p>
+        <p className="text-sm text-slate-600">No products found.</p>
       ) : null}
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -184,10 +184,10 @@ export default function AllProductsClient(props: {
           return (
             <section
               key={productKey}
-              className="rounded-xl border border-white/10 bg-zinc-900/70 p-3"
+              className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
             >
               <div className="flex items-center gap-3">
-                <div className="h-12 w-12 shrink-0 overflow-hidden rounded bg-black/30">
+                <div className="h-12 w-12 shrink-0 overflow-hidden rounded bg-slate-100">
                   {p.preview_image_url ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -200,8 +200,8 @@ export default function AllProductsClient(props: {
                   ) : null}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-zinc-100">{p.product_name}</p>
-                  <p className="text-xs text-zinc-400">
+                  <p className="truncate text-sm font-medium text-slate-900">{p.product_name}</p>
+                  <p className="text-xs text-slate-600">
                     {p.variants.length} color{p.variants.length === 1 ? "" : "s"}
                   </p>
                 </div>
@@ -216,7 +216,7 @@ export default function AllProductsClient(props: {
                       prev[productKey] ? prev : { ...prev, [productKey]: 12 },
                     );
                   }}
-                  className="rounded-md border border-white/10 bg-black/30 px-2 py-1 text-[11px] font-medium text-zinc-100 hover:bg-white/10"
+                  className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-800 hover:bg-slate-50"
                 >
                   {isExpanded ? "Hide colors" : "View colors"}
                 </button>
@@ -227,9 +227,9 @@ export default function AllProductsClient(props: {
                   {visibleVariants.map((v) => (
                     <div
                       key={v.id}
-                      className="flex items-center gap-2 rounded-md border border-white/10 bg-black/30 px-2 py-1.5"
+                      className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5"
                     >
-                      <div className="h-8 w-8 shrink-0 overflow-hidden rounded bg-black/30">
+                      <div className="h-8 w-8 shrink-0 overflow-hidden rounded bg-white">
                         {v.image_url ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
@@ -241,7 +241,7 @@ export default function AllProductsClient(props: {
                           />
                         ) : null}
                       </div>
-                      <span className="min-w-0 flex-1 truncate text-xs text-zinc-100">
+                      <span className="min-w-0 flex-1 truncate text-xs text-slate-800">
                         {v.label}
                       </span>
                       <Link
@@ -250,7 +250,7 @@ export default function AllProductsClient(props: {
                           productName: `${p.product_name} — ${v.label}`,
                           productKey: String(p.product_key ?? p.product_name),
                         }).toString()}`}
-                        className="rounded bg-indigo-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-indigo-500"
+                        className="rounded bg-blue-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-blue-700"
                       >
                         Load
                       </Link>
@@ -269,7 +269,7 @@ export default function AllProductsClient(props: {
                           ),
                         }))
                       }
-                      className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-2 text-xs font-medium text-zinc-200 hover:bg-white/10"
+                      className="w-full rounded-md border border-slate-200 bg-white px-2 py-2 text-xs font-medium text-slate-800 hover:bg-slate-50"
                     >
                       Show more colors ({p.variants.length - visibleCount} remaining)
                     </button>

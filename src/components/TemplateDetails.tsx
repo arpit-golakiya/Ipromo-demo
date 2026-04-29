@@ -178,7 +178,7 @@ function LookbookTile(props: { img: ImageRecordLike; logoDataUrl: string | null;
 
   return (
     <div
-      className="absolute overflow-hidden bg-zinc-100 ring-1 ring-black/5 shadow-sm"
+      className="absolute overflow-hidden bg-zinc-950 ring-1 ring-white/10 shadow-sm"
       style={{
         left: `${tile.xPct}%`,
         top: `${tile.yPct}%`,
@@ -188,7 +188,7 @@ function LookbookTile(props: { img: ImageRecordLike; logoDataUrl: string | null;
     >
       {logoDataUrl ? (
         src ? (
-          <div className="flex h-full w-full items-center justify-center bg-white">
+          <div className="flex h-full w-full items-center justify-center bg-zinc-950">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={src} alt={caption} className="block h-full w-full object-cover" />
           </div>
@@ -202,7 +202,7 @@ function LookbookTile(props: { img: ImageRecordLike; logoDataUrl: string | null;
           </div>
         )
       ) : (
-        <div className="flex h-full w-full items-center justify-center bg-white">
+        <div className="flex h-full w-full items-center justify-center bg-zinc-950">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={img.url}
@@ -215,7 +215,7 @@ function LookbookTile(props: { img: ImageRecordLike; logoDataUrl: string | null;
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0">
         <div className="h-9 bg-black/10" />
-        <div className="absolute inset-x-0 bottom-0 px-3 py-2 text-[11px] font-semibold text-white truncate">
+        <div className="absolute inset-x-0 bottom-0 px-3 py-2 text-[11px] font-semibold text-white truncate drop-shadow-[0_1px_1px_rgba(0,0,0,0.65)]">
           {caption}
         </div>
       </div>
@@ -246,12 +246,12 @@ function LookbookPreview(props: { pages: PageRecordLike[]; logoDataUrl: string |
               type="button"
               onClick={() => setPageIndex((i) => Math.max(0, i - 1))}
               disabled={pageIndex === 0}
-              className="inline-flex items-center justify-center rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-zinc-100 shadow-sm hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-900 shadow-sm hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             >
               Prev
             </button>
 
-            <div className="text-xs font-semibold text-zinc-300">
+            <div className="text-xs font-semibold text-zinc-600">
               Page {pageIndex + 1} / {totalPages}
             </div>
 
@@ -259,13 +259,13 @@ function LookbookPreview(props: { pages: PageRecordLike[]; logoDataUrl: string |
               type="button"
               onClick={() => setPageIndex((i) => Math.min(totalPages - 1, i + 1))}
               disabled={pageIndex >= totalPages - 1}
-              className="inline-flex items-center justify-center rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-zinc-100 shadow-sm hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-900 shadow-sm hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             >
               Next
             </button>
           </div>
 
-          <div className="overflow-hidden bg-white shadow-sm ring-1 ring-black/10">
+          <div className="overflow-hidden bg-white">
             <div className="aspect-[210/297] p-6 sm:p-7">
               <div className="flex h-full flex-col">
                 <div className="shrink-0">
@@ -295,7 +295,17 @@ function LookbookPreview(props: { pages: PageRecordLike[]; logoDataUrl: string |
   );
 }
 
-export function TemplateDetails({ id }: { id: string }) {
+export function TemplateDetails({
+  id,
+  showSidebar = true,
+  backHref = "/lookbooks",
+  backLabel = "Back to Lookbooks",
+}: {
+  id: string;
+  showSidebar?: boolean;
+  backHref?: string;
+  backLabel?: string;
+}) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [template, setTemplate] = useState<Template | null>(null);
@@ -381,7 +391,7 @@ export function TemplateDetails({ id }: { id: string }) {
 
   if (loading) {
     return (
-      <div className="mt-1 p-4 text-sm text-zinc-200">
+      <div className="mt-1 p-4 text-sm text-gray-600">
         Loading template…
       </div>
     );
@@ -393,8 +403,8 @@ export function TemplateDetails({ id }: { id: string }) {
         Failed to load template.{" "}
         <span className="text-red-100/80">({error.length > 140 ? `${error.slice(0, 140)}…` : error})</span>
         <div className="mt-3">
-          <Link href="/lookbook" className="text-xs text-zinc-200 underline underline-offset-2">
-            Back to Lookbook
+          <Link href={backHref} className="text-xs text-zinc-200 underline underline-offset-2">
+            {backLabel}
           </Link>
         </div>
       </div>
@@ -406,9 +416,38 @@ export function TemplateDetails({ id }: { id: string }) {
       <div className="mt-1 p-4 text-sm text-zinc-200">
         Template not found.
         <div className="mt-3">
-          <Link href="/lookbook" className="text-xs text-zinc-200 underline underline-offset-2">
-            Back to Lookbook
+          <Link href={backHref} className="text-xs text-zinc-200 underline underline-offset-2">
+            {backLabel}
           </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (!showSidebar) {
+    return (
+      <div className="flex min-h-0 flex-col gap-4">
+        <div className="flex items-start justify-between gap-3">
+          <h1 className="text-lg font-semibold tracking-tight text-gray-900">{title}</h1>
+          <Link
+            href={backHref}
+            className="shrink-0 rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs text-gray-900 hover:bg-gray-100"
+          >
+            Back
+          </Link>
+        </div>
+
+        <div
+          id={CAPTURE_ID}
+          className="rounded-2xl border border-gray-200 bg-gray-100 p-4 h-full overflow-y-auto hide-scrollbar max-h-[calc(100dvh-9rem)]"
+        >
+          {pages.length > 0 ? (
+            <LookbookPreview pages={pages} logoDataUrl={null} />
+          ) : (
+            <div className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-zinc-200">
+              No pages/images found in this template.
+            </div>
+          )}
         </div>
       </div>
     );
@@ -416,19 +455,19 @@ export function TemplateDetails({ id }: { id: string }) {
 
   return (
     <div className="flex min-h-0 flex-col gap-4 md:flex-row md:gap-6">
-      <aside className="w-full shrink-0 rounded-xl border border-white/10 bg-zinc-900/80 p-4 shadow-xl backdrop-blur-sm md:w-[360px] md:self-start">
+      <aside className="w-full shrink-0 rounded-xl border border-gray-200 bg-white p-4 shadow-xl backdrop-blur-sm md:w-[360px] md:self-start">
         <div className="flex items-start justify-between gap-3">
-          <h1 className="text-lg font-semibold tracking-tight text-white">{title}</h1>
+          <h1 className="text-lg font-semibold tracking-tight text-gray-900">{title}</h1>
           <Link
-            href="/lookbook"
-            className="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-zinc-200 hover:bg-white/10"
+            href={backHref}
+            className="shrink-0 rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs text-gray-900 hover:bg-gray-100"
           >
             Back
           </Link>
         </div>
 
         <div className="mt-4 flex flex-col gap-2">
-          <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">Upload logo</span>
+          <span className="text-xs font-medium uppercase tracking-wide text-gray-400">Upload logo</span>
           <input
             type="file"
             accept="image/png,image/jpeg,image/jpg,image/svg+xml,.svg"
@@ -437,13 +476,13 @@ export function TemplateDetails({ id }: { id: string }) {
               void onPickLogo(f);
               e.target.value = "";
             }}
-            className="w-full text-sm text-zinc-300 file:mr-3 file:rounded-md file:border-0 file:bg-blue-600 file:px-3 file:py-1.5 file:text-sm file:text-white hover:file:bg-blue-500"
+            className="w-full text-sm text-gray-900 file:mr-3 file:rounded-md file:border-0 file:bg-blue-600 file:px-3 file:py-1.5 file:text-sm file:text-white hover:file:bg-blue-500"
           />
 
           {logoDataUrl ? (
-            <div className="flex items-center gap-3 rounded-lg border border-white/10 bg-black/20 p-3">
+            <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
               <div
-                className="h-12 w-12 overflow-hidden rounded-md border border-white/10"
+                className="h-12 w-12 overflow-hidden rounded-md border border-gray-200"
                 style={{
                   backgroundImage: "repeating-conic-gradient(#3f3f46 0% 25%, #27272a 0% 50%)",
                   backgroundSize: "12px 12px",
@@ -453,7 +492,7 @@ export function TemplateDetails({ id }: { id: string }) {
                 <img src={logoDataUrl} alt="Logo preview" className="h-full w-full object-contain" />
               </div>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-xs text-zinc-300">Logo loaded</p>
+                <p className="truncate text-xs text-gray-600">Logo loaded</p>
                 <button
                   type="button"
                   onClick={() => setLogoDataUrl(null)}
@@ -464,16 +503,16 @@ export function TemplateDetails({ id }: { id: string }) {
               </div>
             </div>
           ) : (
-            <p className="text-xs text-zinc-500">This logo will be included in the preview area.</p>
+            <p className="text-xs text-gray-400">This logo will be included in the preview area.</p>
           )}
         </div>
 
-        <div className="mt-4 border-t border-white/10 pt-4">
+        <div className="mt-4 border-t border-gray-200 pt-4">
           <button
             type="button"
             disabled={isExporting}
             onClick={() => void handleDownloadPdf()}
-            className="w-full rounded-lg border border-white/15 bg-white/5 px-4 py-2.5 text-sm font-medium text-zinc-100 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-lg border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm font-medium text-gray-900 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isExporting ? "Downloading…" : "Download PDF"}
           </button>
@@ -481,12 +520,12 @@ export function TemplateDetails({ id }: { id: string }) {
       </aside>
 
       <div className="min-h-0 w-full flex-1">
-        <div id={CAPTURE_ID} className="rounded-2xl border border-white/10 bg-zinc-900/60 p-4 h-full overflow-y-auto hide-scrollbar max-h-[calc(100dvh-6rem)]">
+        <div id={CAPTURE_ID} className="rounded-2xl border border-gray-200 bg-gray-100 p-4 h-full overflow-y-auto hide-scrollbar max-h-[calc(100dvh-6rem)]">
 
           {pages.length > 0 ? (
             <LookbookPreview pages={pages} logoDataUrl={logoDataUrl} />
           ) : (
-            <div className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-zinc-200">
+            <div className="p-4 text-sm text-gray-900">
               No pages/images found in this template.
             </div>
           )}

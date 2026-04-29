@@ -26,7 +26,10 @@ export function AppNav() {
   //   }`;
 
   const routeClass = (active: boolean) =>
-    `rounded-md px-3 py-1.5 text-sm font-medium transition ${active ? "bg-indigo-600 text-white" : "text-white hover:bg-white/20 bg-white/10"
+    `rounded-md px-3 py-1.5 text-sm font-medium transition ${
+      active
+        ? "bg-blue-600 text-white"
+        : "text-slate-700 hover:bg-slate-100 bg-transparent"
     }`;
 
   useEffect(() => {
@@ -79,12 +82,12 @@ export function AppNav() {
   if (shouldHide) return null;
 
   return (
-    <header className="sticky top-0 z-40 border-b border-white/10 bg-zinc-950/90 backdrop-blur">
+    <header className="sticky top-0 z-40 border-b border-slate-200/70 bg-white/85 backdrop-blur">
       <nav className="mx-auto flex h-14 w-full max-w-[1600px] items-center justify-between px-3 sm:px-4 md:px-6">
         <div className="flex items-center gap-1">
           <Link
             href="/"
-            className="rounded-md px-2 py-1.5 text-sm font-semibold tracking-tight text-white"
+            className="rounded-md px-2 py-1.5 text-sm font-semibold tracking-tight text-slate-900"
           >
             iPromo 3D Merch
           </Link>
@@ -98,10 +101,22 @@ export function AppNav() {
             Design
           </Link>
           <Link
-            href="/lookbook"
-            className={routeClass(pathname?.startsWith("/lookbook") ?? false)}
+            href="/lookbooks"
+            className={routeClass(pathname?.startsWith("/lookbooks") ?? false)}
           >
-            Lookbook
+            Lookbooks
+          </Link>
+          <Link
+            href="/templates"
+            className={routeClass(pathname?.startsWith("/templates") ?? false)}
+          >
+            Templates
+          </Link>
+          <Link
+            href="/brands"
+            className={routeClass(pathname?.startsWith("/brands") ?? false)}
+          >
+            Brands
           </Link>
         </div>
         <div className="flex items-center gap-1">
@@ -132,7 +147,7 @@ export function AppNav() {
                 aria-expanded={profileOpen}
                 onMouseEnter={() => setProfileOpen(true)}
                 onClick={() => setProfileOpen((v) => !v)}
-                className="ml-1 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/10 text-xs font-semibold text-white transition hover:bg-white/20"
+                className="ml-1 inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-slate-100 text-xs font-semibold text-slate-800 transition hover:bg-slate-200"
               >
                 {initials}
               </button>
@@ -144,16 +159,16 @@ export function AppNav() {
                   }`}
                 onMouseEnter={() => setProfileOpen(true)}
               >
-                <div className="rounded-xl border border-white/10 bg-zinc-950/95 p-3 shadow-xl backdrop-blur">
+                <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
                   <div className="px-1">
-                    <div className="text-sm font-semibold text-white">{me.username}</div>
-                    <div className="mt-0.5 truncate text-xs text-zinc-300">{me.email}</div>
+                    <div className="text-sm font-semibold text-slate-900">{me.username}</div>
+                    <div className="mt-0.5 truncate text-xs text-slate-600">{me.email}</div>
                   </div>
-                  <div className="my-3 h-px bg-white/10" />
+                  <div className="my-3 h-px bg-slate-200" />
                   <button
                     type="button"
                     onClick={onLogout}
-                    className="w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-left text-sm font-medium text-zinc-100 transition hover:bg-white/10"
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm font-medium text-slate-800 transition hover:bg-slate-50"
                   >
                     Logout
                   </button>

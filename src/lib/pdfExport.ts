@@ -223,12 +223,16 @@ function describeImage(img: { url: string; logo_position?: LogoPositionLike | nu
   return parts.join(" • ");
 }
 
-export async function downloadTemplatePdf(opts: {
+async function buildTemplatePdf(opts: {
   templateName: string;
   pages: TemplatePageLike[];
-  logoDataUrl: string;
-}): Promise<void> {
-  const { templateName, pages, logoDataUrl } = opts;
+  /**
+   * Called once per image. Return the logo data-URL to composite onto that image.
+   * If null/undefined the image is rendered without a logo.
+   */
+  getLogoDataUrl: (img: TemplateImageLike) => string | null | undefined;
+}): Promise<import("jspdf").jsPDF> {
+  const { templateName, pages, getLogoDataUrl } = opts;
 
   const { compositeToDataUrl } = await import("@/lib/imageComposite.client");
   const { jsPDF } = await import("jspdf");
@@ -291,6 +295,9 @@ export async function downloadTemplatePdf(opts: {
       const { x, y, w, h } = tile;
 
       try {
+        const logoDataUrl = getLogoDataUrl(img);
+        if (!logoDataUrl) throw new Error("no-logo");
+
         const dataUrl = await compositeToDataUrl(img.url, logoDataUrl, img.logo_position ?? null, 1600);
 
         const props = pdf.getImageProperties(dataUrl);
@@ -337,6 +344,37 @@ export async function downloadTemplatePdf(opts: {
     }
   }
 
-  const safeName = templateName.replace(/\s+/g, "-");
+  void templateName; // used in filename by callers
+  return pdf;
+}
+
+export async function downloadTemplatePdf(opts: {
+  templateName: string;
+  pages: TemplatePageLike[];
+  logoDataUrl: string;
+}): Promise<void> {
+  const pdf = await buildTemplatePdf({
+    templateName: opts.templateName,
+    pages: opts.pages,
+    getLogoDataUrl: () => opts.logoDataUrl,
+  });
+  const safeName = opts.templateName.replace(/\s+/g, "-");
   pdf.save(`${safeName}-branded.pdf`);
+}
+
+/**
+ * Same layout as downloadTemplatePdf but picks the best-contrast logo variant
+ * per image and returns a Blob instead of triggering a browser download.
+ */
+export async function generateTemplatePdfBlob(opts: {
+  templateName: string;
+  pages: TemplatePageLike[];
+  /**
+   * Called per image; return the logo data-URL to composite for that specific
+   * image (allows per-image contrast variant selection).
+   */
+  getLogoDataUrl: (img: TemplateImageLike) => string | null | undefined;
+}): Promise<Blob> {
+  const pdf = await buildTemplatePdf(opts);
+  return pdf.output("blob") as Blob;
 }

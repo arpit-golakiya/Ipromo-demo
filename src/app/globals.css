@@ -7,15 +7,25 @@ body {
 }
 
 :root {
-  --background: #0f1419;
-  --foreground: #e8eaed;
-  --panel: #1a222c;
-  --accent: #3b82f6;
+  /* iPromo-style light theme foundation (white surfaces + blue accent). */
+  --background: #f6f8fb;
+  --foreground: #0b1220;
+  --panel: #ffffff;
+  --panel-2: #f0f4fa;
+  --border: rgba(15, 23, 42, 0.12);
+  --muted: rgba(15, 23, 42, 0.72);
+  --muted-2: rgba(15, 23, 42, 0.56);
+  --accent: #2563eb;
+  --accent-2: #1d4ed8;
+  color-scheme: light;
 }
 
 body {
   color: var(--foreground);
-  background: var(--background);
+  background:
+    radial-gradient(900px 520px at 15% -10%, rgba(37, 99, 235, 0.14), transparent 60%),
+    radial-gradient(800px 460px at 90% 0%, rgba(14, 165, 233, 0.10), transparent 55%),
+    linear-gradient(180deg, #ffffff 0%, var(--background) 65%);
   min-height: 100dvh;
 }
 

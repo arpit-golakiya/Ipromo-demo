@@ -3,6 +3,9 @@ import { NextResponse, type NextRequest } from "next/server";
 function isPublicPath(pathname: string): boolean {
   if (pathname === "/login" || pathname === "/signup") return true;
   if (pathname.startsWith("/api/auth/")) return true;
+  // Public read-only APIs (used by shared links / unauthenticated views)
+  if (pathname.startsWith("/api/share")) return true;
+  if (pathname.startsWith("/api/library/model")) return true;
   if (pathname.startsWith("/_next/")) return true;
   if (pathname === "/favicon.ico") return true;
   if (pathname.startsWith("/s/")) return true; // shared read-only link

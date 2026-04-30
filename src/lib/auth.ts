@@ -145,6 +145,49 @@ export async function verifyUserCredentials(input: {
   return { id: row.id, email: row.email, username: row.username, isAdmin: Boolean(row.isAdmin) };
 }
 
+export async function changePasswordForUser(input: {
+  userId: string;
+  currentPassword: string;
+  newPassword: string;
+}): Promise<void> {
+  await ensureAuthTables();
+  const userId = input.userId;
+  const currentPassword = input.currentPassword;
+  const newPassword = input.newPassword;
+
+  if (!userId) throw new Error("Not authenticated");
+  if (!currentPassword) throw new Error("Current password is required");
+  if (!newPassword || newPassword.length < 6) throw new Error("New password must be at least 6 characters");
+
+  const { rows } = await dbQuery<{ password_salt: string; password_hash: string }>(
+    `
+    select password_salt, password_hash
+    from users
+    where id = $1::bigint
+    limit 1
+    `,
+    [userId],
+  );
+  const row = rows[0];
+  if (!row) throw new Error("User not found");
+
+  const computed = await scryptHash(currentPassword, row.password_salt);
+  const ok = crypto.timingSafeEqual(Buffer.from(computed, "hex"), Buffer.from(row.password_hash, "hex"));
+  if (!ok) throw new Error("Current password is incorrect");
+
+  const nextSalt = randomToken(16);
+  const nextHash = await scryptHash(newPassword, nextSalt);
+  await dbQuery(
+    `
+    update users
+    set password_salt = $2,
+        password_hash = $3
+    where id = $1::bigint
+    `,
+    [userId, nextSalt, nextHash],
+  );
+}
+
 export async function createSession(userId: string): Promise<{ token: string; expiresAt: Date }> {
   await ensureAuthTables();
 

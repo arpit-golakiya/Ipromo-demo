@@ -165,6 +165,13 @@ export function AppNav() {
                     <div className="mt-0.5 truncate text-xs text-slate-600">{me.email}</div>
                   </div>
                   <div className="my-3 h-px bg-slate-200" />
+                  <Link
+                    href="/change-password"
+                    className="block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm font-medium text-slate-800 transition hover:bg-slate-50"
+                  >
+                    Change password
+                  </Link>
+                  <div className="my-2 h-px bg-slate-200" />
                   <button
                     type="button"
                     onClick={onLogout}

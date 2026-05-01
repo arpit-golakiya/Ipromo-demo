@@ -98,10 +98,10 @@ export default function TemplatesPage() {
               Showing 1 - {filtered.length} of {filtered.length} results
             </div>
 
-            <div className="w-full min-h-[240px] overflow-x-auto">
+            <div className="w-full min-h-[240px] max-h-[70vh] overflow-x-auto overflow-y-auto">
               <table className="w-full min-w-[600px] border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-200 bg-white">
+                  <tr className="sticky top-0 z-10 border-b border-slate-200 bg-white">
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700">Name</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700">Date Added</th>
                     <th className="px-4 py-3 text-right text-xs font-semibold text-slate-700" />

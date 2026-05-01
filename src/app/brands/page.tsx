@@ -132,10 +132,10 @@ export default function BrandsPage() {
               Showing 1 - {filtered.length} of {filtered.length} results
             </div>
 
-            <div className="w-full min-h-[240px] overflow-x-auto">
+            <div className="w-full min-h-[240px] max-h-[70vh] overflow-x-auto overflow-y-auto">
               <table className="w-full min-w-[900px] border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-200 bg-white">
+                  <tr className="sticky top-0 z-10 border-b border-slate-200 bg-white">
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700">Primary Logo</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700">Brand Name</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700">Status</th>

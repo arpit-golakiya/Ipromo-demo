@@ -1,7 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { DEFAULT_DECAL, type DecalConfig } from "@/types/configurator";
+import {
+  DEFAULT_DECAL,
+  MAX_LOGOS,
+  decalPresetForPlacement,
+  type DecalConfig,
+  type LogoLayer,
+  type LogoPlacement,
+} from "@/types/configurator";
 
 const DEFAULT_PRODUCT_NAME = "Select a product";
 const DEFAULT_LIBRARY_QUERY = "Paxton Sweatshirt";
@@ -82,13 +89,13 @@ function readDecalFromParams(sp: URLSearchParams): DecalConfig {
 export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: boolean }) {
   const disableInitialLibrarySearch = Boolean(opts?.disableInitialLibrarySearch);
   const [color, setColor] = useState("#ffffff");
-  const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null);
-  const [decal, setDecalState] = useState<DecalConfig>(DEFAULT_DECAL);
+  const [logos, setLogos] = useState<LogoLayer[]>([]);
+  const [activeLogoId, setActiveLogoId] = useState<string | null>(null);
   const [isLogoPlacementMode, setIsLogoPlacementMode] = useState(false);
   const [decalPreset, setDecalPreset] = useState<DecalConfig | null>(null);
 
   type DecalSource = "default" | "preset" | "url" | "share" | "user";
-  // Tracks which system last set `decal`, so we can avoid overwriting explicit share/url/user placement.
+  // Tracks which system last set logo decals, so we can avoid overwriting explicit share/url/user placement.
   const decalSource = useRef<DecalSource>("default");
 
   const [productName, setProductName] = useState(DEFAULT_PRODUCT_NAME);
@@ -109,37 +116,82 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
   const [isHydratingFromShare, setIsHydratingFromShare] = useState(false);
   const didAutoSelectFirstVariant = useRef(false);
   const lastLibraryFetchKey = useRef<string | null>(null);
+  const lastPresetFetchKey = useRef<string | null>(null);
   const libraryFetchSeq = useRef(0);
   const activeLibraryFetchSeq = useRef(0);
 
-  const setLogoDataUrlWithReset = useCallback((url: string | null) => {
-    setLogoDataUrl(url);
-    if (!url) {
-      setIsLogoPlacementMode(false);
-      return;
-    }
-    // If the user already has an explicit placement (from a share link, URL, or manual move),
-    // don't overwrite it just because a logo was added/changed.
-    if (
-      decalSource.current === "share" ||
-      decalSource.current === "url" ||
-      decalSource.current === "user"
-    ) {
-      return;
-    }
-    // Otherwise: if we have a saved preset for the selected model, use it; else default.
-    if (decalPreset) {
-      decalSource.current = "preset";
-      setDecalState(decalPreset);
-    } else {
-      decalSource.current = "default";
-      setDecalState(DEFAULT_DECAL);
-    }
-  }, [decalPreset]);
+  const makeLogoLayer = useCallback(
+    (dataUrl: string, placement: LogoPlacement, opts?: { id?: string; baseDecal?: DecalConfig }) => {
+      const id = (opts?.id ?? (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`)).toString();
+      const base = opts?.baseDecal ?? decalPreset ?? DEFAULT_DECAL;
+      const decal = decalPresetForPlacement(placement, base);
+      const layer: LogoLayer = { id, dataUrl, placement, decal };
+      return layer;
+    },
+    [decalPreset],
+  );
 
-  const setDecal = useCallback((next: DecalConfig) => {
+  const addLogo = useCallback(
+    (dataUrl: string, placement: LogoPlacement = "front") => {
+      const layer = makeLogoLayer(dataUrl, placement);
+      setLogos((prev) => {
+        const next = prev.slice(0, MAX_LOGOS);
+        if (next.length >= MAX_LOGOS) return next;
+        return [...next, layer];
+      });
+      setActiveLogoId(layer.id);
+    },
+    [makeLogoLayer],
+  );
+
+  const upsertActiveLogo = useCallback(
+    (dataUrl: string, placement: LogoPlacement = "front") => {
+      // If we are adding a new logo, pre-generate the layer so we can set active synchronously.
+      const newLayer = makeLogoLayer(dataUrl, placement);
+      let didInsertNew = false;
+      setLogos((prev) => {
+        const next = prev.slice(0, MAX_LOGOS);
+        const idx = activeLogoId ? next.findIndex((l) => l.id === activeLogoId) : -1;
+        if (idx >= 0) {
+          const current = next[idx]!;
+          const base = current.decal;
+          next[idx] = {
+            ...current,
+            dataUrl,
+            // keep existing placement/decal; swapping image shouldn't move it
+            decal: base,
+          };
+          return next;
+        }
+        if (next.length >= MAX_LOGOS) return next;
+        didInsertNew = true;
+        return [...next, newLayer];
+      });
+      if (didInsertNew) setActiveLogoId(newLayer.id);
+    },
+    [activeLogoId, makeLogoLayer],
+  );
+
+  const removeLogo = useCallback((id: string) => {
+    setLogos((prev) => prev.filter((l) => l.id !== id));
+    setIsLogoPlacementMode(false);
+    setActiveLogoId((cur) => (cur === id ? null : cur));
+  }, []);
+
+  const setLogoPlacement = useCallback((id: string, placement: LogoPlacement) => {
+    setLogos((prev) => prev.map((l) => {
+      if (l.id !== id) return l;
+      return {
+        ...l,
+        placement,
+        decal: decalPresetForPlacement(placement, l.decal),
+      };
+    }));
+  }, []);
+
+  const setLogoDecal = useCallback((id: string, next: DecalConfig) => {
     decalSource.current = "user";
-    setDecalState(next);
+    setLogos((prev) => prev.map((l) => (l.id === id ? { ...l, decal: next } : l)));
   }, []);
 
   useEffect(() => {
@@ -161,10 +213,25 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
 
     const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
     const logo = hashParams.get("logo") ?? sp.get("logo");
-    if (logo && logo.startsWith("data:image")) setLogoDataUrl(logo);
-    if (hasDecalParams(sp)) {
+    const decalFromUrl = hasDecalParams(sp) ? readDecalFromParams(sp) : null;
+    if (logo && logo.startsWith("data:image")) {
+      const id =
+        (typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random()}`).toString();
+      const layer: LogoLayer = {
+        id,
+        dataUrl: logo,
+        placement: "front",
+        decal: decalFromUrl ?? DEFAULT_DECAL,
+      };
+      setLogos([layer]);
+      setActiveLogoId(layer.id);
+      if (decalFromUrl) decalSource.current = "url";
+    } else if (decalFromUrl) {
+      // If there is a decal in the URL but no logo, keep it as a future base preset.
       decalSource.current = "url";
-      setDecalState(readDecalFromParams(sp));
+      setDecalPreset(decalFromUrl);
     }
   }, []);
 
@@ -188,6 +255,12 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
       return right ? right : null;
     })();
 
+    // Dedupe: avoid calling the API repeatedly on initial hydration where
+    // productName/productKey can change a few times.
+    const fetchKey = `${modelId ?? ""}::${pk ?? ""}::${colorLabel ?? ""}`;
+    if (lastPresetFetchKey.current === fetchKey) return;
+    lastPresetFetchKey.current = fetchKey;
+
     const loadPreset = async () => {
       try {
         const params = new URLSearchParams();
@@ -210,16 +283,20 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
         }
         const preset = data.decal ?? null;
         setDecalPreset(preset);
-        // Only auto-apply presets when the decal hasn't been explicitly set via
-        // share link / URL params / user interaction.
-        if (
-          preset &&
-          logoDataUrl &&
-          (decalSource.current === "default" || decalSource.current === "preset")
-        ) {
-          decalSource.current = "preset";
-          setDecalState(preset);
-        }
+        // Only auto-apply presets when the logo decals haven't been explicitly set via
+        // share link / URL params / user interaction. Apply only to logos that still
+        // look like the default/preset (i.e. not user-moved).
+        if (!preset) return;
+        if (decalSource.current !== "default" && decalSource.current !== "preset") return;
+        setLogos((prev) => {
+          if (prev.length === 0) return prev;
+          // Apply to all logos but keep placement intent (front/back/sleeves).
+          return prev.map((l) => ({
+            ...l,
+            decal: decalPresetForPlacement(l.placement, preset),
+          }));
+        });
+        decalSource.current = "preset";
       } catch {
         if (cancelled) return;
         setDecalPreset(null);
@@ -230,7 +307,7 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
     return () => {
       cancelled = true;
     };
-  }, [logoDataUrl, productKey, productName, selectedModelId]);
+  }, [productKey, productName, selectedModelId]);
 
   const loadFromShareId = useCallback(async (shareId: string) => {
     if (!shareId || hydratedFromShare.current) return;
@@ -240,37 +317,53 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
       const res = await fetch(`/api/share?id=${encodeURIComponent(shareId)}`);
       const data: {
         payload?: {
-          v: 1;
+          v: 1 | 2;
           productName: string;
           color: string;
-          decal: DecalConfig;
           modelId: string | null;
-          logoDataUrl: string | null;
+          // v1
+          decal?: DecalConfig;
+          logoDataUrl?: string | null;
+          // v2
+          logos?: LogoLayer[];
         };
         error?: string;
       } = await res.json();
       if (!res.ok || data.error || !data.payload) return;
       const p = data.payload;
-      if (p.v !== 1) return;
+      if (p.v !== 1 && p.v !== 2) return;
       setProductName(p.productName || DEFAULT_PRODUCT_NAME);
       setProductKey(null);
       if (p.color) setColor(p.color);
-      if (p.decal) {
-        decalSource.current = "share";
-        setDecalState(p.decal);
-      }
       setSelectedModelId(parseModelId(p.modelId));
-      if (p.logoDataUrl && p.logoDataUrl.startsWith("data:image")) setLogoDataUrl(p.logoDataUrl);
+      if (p.v === 2 && Array.isArray(p.logos) && p.logos.length) {
+        decalSource.current = "share";
+        const next = p.logos.slice(0, MAX_LOGOS).filter((l) => typeof l?.dataUrl === "string" && l.dataUrl.startsWith("data:image"));
+        setLogos(next);
+        setActiveLogoId(next[0]?.id ?? null);
+        return;
+      }
+      // v1 fallback
+      if (p.logoDataUrl && p.logoDataUrl.startsWith("data:image")) {
+        const base = p.decal ?? DEFAULT_DECAL;
+        decalSource.current = "share";
+        const layer = makeLogoLayer(p.logoDataUrl, "front", { baseDecal: base });
+        setLogos([layer]);
+        setActiveLogoId(layer.id);
+      }
     } catch {
       // ignore
     } finally {
       setIsHydratingFromShare(false);
     }
-  }, []);
+  }, [makeLogoLayer]);
 
   const buildQueryString = useCallback(() => {
     const params = new URLSearchParams();
     params.set("c", color.replace("#", ""));
+    // Encode the active logo's decal (best-effort URL compat).
+    const active = activeLogoId ? logos.find((l) => l.id === activeLogoId) : logos[0];
+    const decal = active?.decal ?? DEFAULT_DECAL;
     params.set("dx", String(decal.position[0]));
     params.set("dy", String(decal.position[1]));
     params.set("dz", String(decal.position[2]));
@@ -280,17 +373,16 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
     params.set("rz", String(decal.rotation[2]));
     if (selectedModelId) params.set("modelId", selectedModelId);
     return params.toString();
-  }, [color, decal, selectedModelId]);
+  }, [activeLogoId, color, logos, selectedModelId]);
 
   const buildShareHref = useCallback(() => {
     const q = buildQueryString();
-    let href = `${window.location.origin}${window.location.pathname}?${q}`;
-    if (logoDataUrl) {
-      const hash = new URLSearchParams({ logo: logoDataUrl }).toString();
-      href += `#${hash}`;
-    }
+    const href = `${window.location.origin}${window.location.pathname}?${q}`;
+    // IMPORTANT: do NOT embed logo data URLs into the link. These URLs are often
+    // extremely large and can cause clipboard writes to fail (falling back to a prompt).
+    // Sharing is handled via /api/share which returns a short /s/[id] link.
     return href;
-  }, [buildQueryString, logoDataUrl]);
+  }, [buildQueryString]);
 
   const modelUrl = selectedModelId
     ? `/api/library/model?id=${encodeURIComponent(selectedModelId)}`
@@ -460,40 +552,46 @@ export function useConfiguratorState(opts?: { disableInitialLibrarySearch?: bool
     setProductKey(typeof item.product_key === "string" ? item.product_key : null);
   }, []);
 
-  const copyShareLink = useCallback(async () => {
-    let full = buildShareHref();
+  const copyShareLink = useCallback(async (): Promise<{ ok: boolean; href: string }> => {
+    let href = buildShareHref();
     try {
       const res = await fetch("/api/share", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          v: 1,
+          v: 2,
           productName,
           color,
-          decal,
           modelId: selectedModelId,
-          logoDataUrl,
+          logos,
         }),
       });
       const data: { id?: string; error?: string } = await res.json();
-      if (res.ok && data.id) full = `${window.location.origin}/s/${data.id}`;
+      if (res.ok && data.id) href = `${window.location.origin}/s/${data.id}`;
     } catch {
-      // fallback
+      // fallback to non-share URL
     }
+
     try {
-      await navigator.clipboard.writeText(full);
+      await navigator.clipboard.writeText(href);
+      return { ok: true, href };
     } catch {
-      window.prompt("Copy this link:", full);
+      // No browser modal fallback — the UI can show an error instead.
+      return { ok: false, href };
     }
-  }, [buildShareHref, color, decal, logoDataUrl, productName, selectedModelId]);
+  }, [buildShareHref, color, logos, productName, selectedModelId]);
 
   return {
     productKey,
     productName,
-    logoDataUrl,
-    setLogoDataUrl: setLogoDataUrlWithReset,
-    decal,
-    setDecal,
+    logos,
+    activeLogoId,
+    setActiveLogoId,
+    addLogo,
+    upsertActiveLogo,
+    removeLogo,
+    setLogoPlacement,
+    setLogoDecal,
     decalPreset,
     setDecalPreset,
     isLogoPlacementMode,

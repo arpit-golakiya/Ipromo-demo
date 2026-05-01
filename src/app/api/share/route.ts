@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dbQuery } from "@/lib/db";
-import type { DecalConfig } from "@/types/configurator";
+import type { DecalConfig, LogoLayer } from "@/types/configurator";
 
-type SharePayload = {
+type SharePayloadV1 = {
   v: 1;
   productName: string;
   color: string;
@@ -12,6 +12,18 @@ type SharePayload = {
   /** Logo image stored as a data URL (we may later migrate this to Supabase Storage). */
   logoDataUrl: string | null;
 };
+
+type SharePayloadV2 = {
+  v: 2;
+  productName: string;
+  color: string;
+  /** Selected preloaded model id (from the library). */
+  modelId: string | null;
+  /** Up to 4 logos, each with its own placement + decal config. */
+  logos: LogoLayer[];
+};
+
+type SharePayload = SharePayloadV1 | SharePayloadV2;
 
 const TABLE = "shared_configs";
 
@@ -23,7 +35,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  if (!payload || payload.v !== 1) {
+  const v = (payload as { v?: unknown } | null)?.v;
+  if (!payload || (v !== 1 && v !== 2)) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 

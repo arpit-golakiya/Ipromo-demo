@@ -12,7 +12,7 @@ import {
 } from "react";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
-import type { DecalConfig } from "@/types/configurator";
+import type { DecalConfig, LogoLayer } from "@/types/configurator";
 
 export const HOODIE_MODEL_PATH =
   "/models/base_basic_pbr.glb";
@@ -122,67 +122,94 @@ function pickDecalMeshIndex(meshes: FlatMesh[]): number {
   return best >= 0 ? best : 0;
 }
 
-function useLogoTexture(logoDataUrl: string | null): {
-  texture: THREE.Texture | null;
-  loadGeneration: number;
+type LoadedLogoTex = {
+  texture: THREE.Texture;
   aspectRatio: number;
-} {
-  const [texture, setTexture] = useState<THREE.Texture | null>(null);
-  const [loadGeneration, setLoadGeneration] = useState(0);
-  const [aspectRatio, setAspectRatio] = useState(1);
+  loadGeneration: number;
+};
+
+function useLogoTextureMap(logos: LogoLayer[]) {
+  const [map, setMap] = useState<Record<string, LoadedLogoTex | null>>({});
+  const prevIdsRef = useRef<Set<string>>(new Set());
+  const lastUrlByIdRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
-    if (!logoDataUrl) {
-      setTexture((prev) => {
-        if (prev) prev.dispose();
-        return null;
-      });
-      setAspectRatio(1);
-      return;
+    const nextIds = new Set(logos.map((l) => l.id));
+    prevIdsRef.current = nextIds;
+
+    // Dispose removed textures.
+    setMap((prev) => {
+      const out: Record<string, LoadedLogoTex | null> = { ...prev };
+      for (const id of Object.keys(out)) {
+        if (!nextIds.has(id)) {
+          const entry = out[id];
+          if (entry?.texture) entry.texture.dispose();
+          delete out[id];
+        }
+      }
+      return out;
+    });
+    // Drop removed ids from URL tracking.
+    for (const id of Object.keys(lastUrlByIdRef.current)) {
+      if (!nextIds.has(id)) delete lastUrlByIdRef.current[id];
     }
 
-    let cancelled = false;
-    const img = new Image();
-    img.crossOrigin = "anonymous";
+    // Load/update any logo whose dataUrl changed.
+    const cleanups: Array<() => void> = [];
+    for (const logo of logos) {
+      const id = logo.id;
+      const dataUrl = logo.dataUrl;
+      if (!id || !dataUrl) continue;
+      if (lastUrlByIdRef.current[id] === dataUrl) continue;
+      lastUrlByIdRef.current[id] = dataUrl;
 
-    const applyTexture = () => {
-      if (cancelled || !img.complete || img.naturalWidth < 1) return;
-      const tex = new THREE.Texture(img);
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
-      tex.flipY = true;
-      tex.needsUpdate = true;
-      setTexture((prev) => {
-        if (prev) prev.dispose();
-        return tex;
-      });
-      setAspectRatio(img.naturalWidth / Math.max(img.naturalHeight, 1));
-      setLoadGeneration((n) => n + 1);
-    };
+      let cancelled = false;
+      const img = new Image();
+      img.crossOrigin = "anonymous";
 
-    img.onload = applyTexture;
-    img.onerror = () => {
-      console.warn("[HoodieModel] Logo image failed to load (check file type / path).");
-    };
-    img.src = logoDataUrl;
-    if (img.complete && img.naturalWidth > 0) applyTexture();
+      const apply = () => {
+        if (cancelled || !img.complete || img.naturalWidth < 1) return;
+        const tex = new THREE.Texture(img);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+        tex.flipY = true;
+        tex.needsUpdate = true;
+        setMap((prev) => {
+          const prevEntry = prev[id];
+          if (prevEntry?.texture) prevEntry.texture.dispose();
+          return {
+            ...prev,
+            [id]: {
+              texture: tex,
+              aspectRatio: img.naturalWidth / Math.max(img.naturalHeight, 1),
+              loadGeneration: (prevEntry?.loadGeneration ?? 0) + 1,
+            },
+          };
+        });
+      };
 
+      img.onload = apply;
+      img.onerror = () => {
+        if (cancelled) return;
+        console.warn("[HoodieModel] Logo image failed to load (check file type / path).");
+        setMap((prev) => ({ ...prev, [id]: null }));
+      };
+      img.src = dataUrl;
+      if (img.complete && img.naturalWidth > 0) apply();
+      cleanups.push(() => { cancelled = true; });
+    }
     return () => {
-      cancelled = true;
-      setTexture((prev) => {
-        if (prev) prev.dispose();
-        return null;
-      });
+      for (const fn of cleanups) fn();
     };
-  }, [logoDataUrl]);
+  }, [logos]);
 
-  return { texture, loadGeneration, aspectRatio };
+  return map;
 }
 
 export type HoodieModelProps = {
-  logoDataUrl: string | null;
-  decal: DecalConfig;
-  onDecalChange?: (next: DecalConfig) => void;
+  logos: LogoLayer[];
+  activeLogoId: string | null;
+  onLogoDecalChange?: (logoId: string, next: DecalConfig) => void;
   orbitRef?: RefObject<OrbitControlsImpl | null>;
   isLogoPlacementMode?: boolean;
   modelUrl?: string;
@@ -191,9 +218,9 @@ export type HoodieModelProps = {
 };
 
 export function HoodieModel({
-  logoDataUrl,
-  decal,
-  onDecalChange,
+  logos,
+  activeLogoId,
+  onLogoDecalChange,
   orbitRef,
   isLogoPlacementMode,
   modelUrl,
@@ -204,8 +231,11 @@ export function HoodieModel({
   const decalMeshRef = useRef<THREE.Mesh>(null);
   const draggingLogo = useRef(false);
   const logoPointerId = useRef<number | null>(null);
-  const decalRef = useRef(decal);
-  decalRef.current = decal;
+  const activeId = activeLogoId ?? logos[0]?.id ?? null;
+  const activeLogo = activeId ? logos.find((l) => l.id === activeId) : null;
+  const activeDecal = activeLogo?.decal ?? null;
+  const decalRef = useRef<DecalConfig | null>(activeDecal);
+  decalRef.current = activeDecal;
 
   const { camera, gl, raycaster } = useThree();
   const pointerNdc = useRef(new THREE.Vector2());
@@ -229,8 +259,7 @@ export function HoodieModel({
     [preparedMeshes],
   );
 
-  const { texture: logoMap, loadGeneration: logoLoadGen, aspectRatio: logoAspect } =
-    useLogoTexture(logoDataUrl);
+  const texMap = useLogoTextureMap(logos);
 
   useEffect(() => {
     return () => {
@@ -248,16 +277,19 @@ export function HoodieModel({
   }, [preparedMeshes, onModelColorInfo]);
 
   useEffect(() => {
-    if (!logoMap) return;
     // Improve perceived sharpness on angled surfaces / when zooming.
     // (This does not invent detail; it reduces blur from sampling.)
-    logoMap.anisotropy = gl.capabilities.getMaxAnisotropy();
-    logoMap.minFilter = THREE.LinearFilter;
-    logoMap.magFilter = THREE.LinearFilter;
-    logoMap.generateMipmaps = false;
-    logoMap.premultiplyAlpha = true;
-    logoMap.needsUpdate = true;
-  }, [gl.capabilities, logoMap]);
+    for (const entry of Object.values(texMap)) {
+      if (!entry?.texture) continue;
+      const logoMap = entry.texture;
+      logoMap.anisotropy = gl.capabilities.getMaxAnisotropy();
+      logoMap.minFilter = THREE.LinearFilter;
+      logoMap.magFilter = THREE.LinearFilter;
+      logoMap.generateMipmaps = false;
+      logoMap.premultiplyAlpha = true;
+      logoMap.needsUpdate = true;
+    }
+  }, [gl.capabilities, texMap]);
 
   const decalGeoBBox = useMemo(() => {
     if (preparedMeshes.length === 0) return null;
@@ -275,8 +307,8 @@ export function HoodieModel({
     [decalGeoBBox],
   );
 
-  const decalLocal = useMemo(
-    (): DecalConfig & { scaleX: number; scaleY: number; projectorDepth: number } => {
+  const computeDecalLocal = useCallback(
+    (decal: DecalConfig, logoAspect: number): DecalConfig & { scaleX: number; scaleY: number; projectorDepth: number } => {
       const lerp = (t: number, min: number, max: number) => min + t * (max - min);
       const baseScale = decalGeoBBox && decalBBoxSize
         ? decal.scale * Math.min(decalBBoxSize.x, decalBBoxSize.y)
@@ -306,7 +338,7 @@ export function HoodieModel({
         projectorDepth,
       };
     },
-    [decal, decalGeoBBox, decalBBoxSize, logoAspect],
+    [decalGeoBBox, decalBBoxSize],
   );
 
   const localToNorm = useCallback(
@@ -328,7 +360,7 @@ export function HoodieModel({
   const projectClientToDecalPosition = useCallback(
     (clientX: number, clientY: number) => {
       const mesh = decalMeshRef.current;
-      if (!mesh || !onDecalChange) return;
+      if (!mesh || !onLogoDecalChange || !activeId || !decalRef.current) return;
       const rect = gl.domElement.getBoundingClientRect();
       pointerNdc.current.x =
         ((clientX - rect.left) / rect.width) * 2 - 1;
@@ -352,13 +384,13 @@ export function HoodieModel({
       const euler = new THREE.Euler().setFromQuaternion(q, "XYZ");
 
       const d = decalRef.current;
-      onDecalChange({
+      onLogoDecalChange(activeId, {
         ...d,
         position: localToNorm(localHit.current),
         rotation: [euler.x, euler.y, d.rotation[2]],
       });
     },
-    [camera, gl.domElement, localToNorm, onDecalChange, raycaster],
+    [activeId, camera, gl.domElement, localToNorm, onLogoDecalChange, raycaster],
   );
 
   const endLogoDrag = useCallback(() => {
@@ -376,7 +408,8 @@ export function HoodieModel({
   }, [gl.domElement, orbitRef]);
 
   useEffect(() => {
-    if (!onDecalChange || !logoMap) return;
+    const activeTex = activeId ? texMap[activeId]?.texture ?? null : null;
+    if (!onLogoDecalChange || !activeTex) return;
     const el = gl.domElement;
     const onUp = () => endLogoDrag();
     const onMove = (ev: PointerEvent) => {
@@ -393,11 +426,12 @@ export function HoodieModel({
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointermove", onMove);
     };
-  }, [endLogoDrag, gl.domElement, logoMap, onDecalChange, projectClientToDecalPosition]);
+  }, [activeId, endLogoDrag, gl.domElement, onLogoDecalChange, projectClientToDecalPosition, texMap]);
 
   const onDecalMeshPointerDown = useCallback(
     (e: ThreeEvent<PointerEvent>) => {
-      if (!logoMap || !onDecalChange || !isLogoPlacementMode) return;
+      const activeTex = activeId ? texMap[activeId]?.texture ?? null : null;
+      if (!activeTex || !onLogoDecalChange || !isLogoPlacementMode) return;
       e.stopPropagation();
       draggingLogo.current = true;
       if (orbitRef?.current) orbitRef.current.enabled = false;
@@ -406,12 +440,13 @@ export function HoodieModel({
       projectClientToDecalPosition(e.clientX, e.clientY);
     },
     [
+      activeId,
       gl.domElement,
       isLogoPlacementMode,
-      logoMap,
-      onDecalChange,
+      onLogoDecalChange,
       orbitRef,
       projectClientToDecalPosition,
+      texMap,
     ],
   );
 
@@ -433,30 +468,38 @@ export function HoodieModel({
               index === decalMeshIndex ? onDecalMeshPointerDown : undefined
             }
           >
-            {index === decalMeshIndex && logoMap ? (
-              <Decal
-                key={`${logoLoadGen}-${logoMap.uuid}`}
-                position={decalLocal.position}
-                rotation={decalLocal.rotation}
-                scale={[decalLocal.scaleX, decalLocal.scaleY, decalLocal.projectorDepth]}
-                map={logoMap}
-                renderOrder={10}
-                {...{
-                  "material-depthTest": true,
-                  "material-depthWrite": false,
-                  "material-side": THREE.FrontSide,
-                  "material-transparent": true,
-                  // Avoid hard edge cutouts; prefer smooth blending.
-                  "material-alphaTest": 0,
-                  "material-alphaToCoverage": true,
-                  "material-premultipliedAlpha": true,
-                  "material-polygonOffset": true,
-                  "material-polygonOffsetFactor": -1,
-                  "material-polygonOffsetUnits": -4,
-                  "material-toneMapped": true,
-                }}
-              />
-            ) : null}
+            {index === decalMeshIndex
+              ? logos.map((logo) => {
+                const entry = texMap[logo.id];
+                const logoMap = entry?.texture ?? null;
+                if (!logoMap) return null;
+                const local = computeDecalLocal(logo.decal, entry?.aspectRatio ?? 1);
+                return (
+                  <Decal
+                    key={`${logo.id}-${entry?.loadGeneration ?? 0}-${logoMap.uuid}`}
+                    position={local.position}
+                    rotation={local.rotation}
+                    scale={[local.scaleX, local.scaleY, local.projectorDepth]}
+                    map={logoMap}
+                    renderOrder={10}
+                    {...{
+                      "material-depthTest": true,
+                      "material-depthWrite": false,
+                      "material-side": THREE.FrontSide,
+                      "material-transparent": true,
+                      // Avoid hard edge cutouts; prefer smooth blending.
+                      "material-alphaTest": 0,
+                      "material-alphaToCoverage": true,
+                      "material-premultipliedAlpha": true,
+                      "material-polygonOffset": true,
+                      "material-polygonOffsetFactor": -1,
+                      "material-polygonOffsetUnits": -4,
+                      "material-toneMapped": true,
+                    }}
+                  />
+                );
+              })
+              : null}
           </mesh>
         </group>
       ))}

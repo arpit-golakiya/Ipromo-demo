@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { DecalConfig } from "@/types/configurator";
+import { MAX_LOGOS, type DecalConfig, type LogoLayer, type LogoPlacement } from "@/types/configurator";
 import { downloadConfiguratorPdf } from "@/lib/pdfExport";
 import type { LibraryItem, LibraryProduct } from "@/hooks/useConfiguratorState";
 
@@ -223,13 +223,17 @@ export type ControlsPanelProps = {
   onSearchLibrary: (q: string) => void;
   selectedModelId: string | null;
   onSelectModel: (item: LibraryItem | null) => void;
-  logoDataUrl: string | null;
-  onLogoDataUrlChange: (dataUrl: string | null) => void;
+  logos: LogoLayer[];
+  activeLogoId: string | null;
+  onActiveLogoIdChange: (id: string | null) => void;
+  onAddLogo: (dataUrl: string, placement?: LogoPlacement) => void;
+  onUpsertActiveLogo: (dataUrl: string, placement?: LogoPlacement) => void;
+  onRemoveLogo: (id: string) => void;
   isLogoPlacementMode: boolean;
   onLogoPlacementModeChange: (v: boolean) => void;
-  decal: DecalConfig;
-  onDecalChange: (next: DecalConfig) => void;
-  onCopyShare: () => void;
+  activeDecal: DecalConfig | null;
+  onActiveDecalChange: (next: DecalConfig) => void;
+  onCopyShare: () => Promise<{ ok: boolean; href: string }>;
   captureElementId: string;
 };
 
@@ -247,12 +251,16 @@ export function ControlsPanel({
   onSearchLibrary,
   selectedModelId,
   onSelectModel,
-  logoDataUrl,
-  onLogoDataUrlChange,
+  logos,
+  activeLogoId,
+  onActiveLogoIdChange,
+  onAddLogo,
+  onUpsertActiveLogo,
+  onRemoveLogo,
   isLogoPlacementMode,
   onLogoPlacementModeChange,
-  decal,
-  onDecalChange,
+  activeDecal,
+  onActiveDecalChange,
   onCopyShare,
   captureElementId,
 }: ControlsPanelProps) {
@@ -265,6 +273,7 @@ export function ControlsPanel({
   const [isLogoProcessing, setIsLogoProcessing] = useState(false);
   const [logoProcessingLabel, setLogoProcessingLabel] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [isCopyingShare, setIsCopyingShare] = useState(false);
   const [logoDropActive, setLogoDropActive] = useState(false);
   const [localQuery, setLocalQuery] = useState(libraryQuery);
   const originalLogoDataUrlRef = useRef<string | null>(null);
@@ -309,15 +318,32 @@ export function ControlsPanel({
     }
   }, [increaseLogoQuality]);
 
+  const activeLogo = (() => {
+    const id = activeLogoId ?? logos[0]?.id ?? null;
+    return id ? logos.find((l) => l.id === id) ?? null : null;
+  })();
+  const activeLogoDataUrl = activeLogo?.dataUrl ?? null;
+  const activeLogoPlacement = activeLogo?.placement ?? "front";
+
+  function commitProcessedLogo(dataUrl: string) {
+    // UX: each upload should add a new logo until we hit the max.
+    // After MAX_LOGOS, we fall back to replacing the active logo.
+    if (logos.length < MAX_LOGOS) {
+      onAddLogo(dataUrl, activeLogoPlacement);
+      return;
+    }
+    onUpsertActiveLogo(dataUrl, activeLogoPlacement);
+  }
+
   useEffect(() => {
-    // If the logo is cleared (or loaded from share/url without an "original upload"),
+    // If the active logo is cleared (or loaded from share/url without an "original upload"),
     // reset our local tracking so future uploads can be enhanced immediately on toggle.
-    if (!logoDataUrl) {
+    if (!activeLogoDataUrl) {
       originalLogoDataUrlRef.current = null;
       lastAutoEnhancedSourceRef.current = null;
       return;
     }
-  }, [logoDataUrl]);
+  }, [activeLogoDataUrl]);
 
   async function handlePdf() {
     try {
@@ -404,7 +430,7 @@ export function ControlsPanel({
         dataUrl = await padLogoWithTransparentMargin(dataUrl);
         // Step 5: compress to keep decal texture size reasonable
         const compressed = await compressLogoImage(dataUrl, maxPx);
-        onLogoDataUrlChange(compressed);
+        commitProcessedLogo(compressed);
       })()
         .catch(() => {
           // Fallback to local near-white removal if the API fails.
@@ -429,7 +455,7 @@ export function ControlsPanel({
               })
               .then((result) => padLogoWithTransparentMargin(result))
               .then((result) => compressLogoImage(result, maxPx))
-              .then((result) => onLogoDataUrlChange(result))
+              .then((result) => commitProcessedLogo(result))
               .finally(() => {
                 setLogoProcessingLabel(null);
                 setIsLogoProcessing(false);
@@ -466,7 +492,7 @@ export function ControlsPanel({
         }
         next = await padLogoWithTransparentMargin(next);
         const compressed = await compressLogoImage(next, maxPx);
-        onLogoDataUrlChange(compressed);
+        commitProcessedLogo(compressed);
       })()
         .finally(() => {
           setLogoProcessingLabel(null);
@@ -481,7 +507,7 @@ export function ControlsPanel({
     // No button, no re-upload: reprocess from the original uploaded dataUrl.
     if (!increaseLogoQuality) return;
     if (autoEnhanceInFlightRef.current) return;
-    if (!logoDataUrl) return;
+    if (!activeLogoDataUrl) return;
     const original = originalLogoDataUrlRef.current;
     if (!original) return;
     if (lastAutoEnhancedSourceRef.current === original) return;
@@ -527,7 +553,8 @@ export function ControlsPanel({
       setLogoProcessingLabel("Optimizing logo…");
       const compressed = await compressLogoImage(dataUrl, maxPx);
       if (cancelled) return;
-      onLogoDataUrlChange(compressed);
+      // Auto-enhance should REPLACE the active logo (not add a new one).
+      onUpsertActiveLogo(compressed, activeLogoPlacement);
     })()
       .finally(() => {
         autoEnhanceInFlightRef.current = false;
@@ -543,14 +570,11 @@ export function ControlsPanel({
       setLogoProcessingLabel(null);
       setIsLogoProcessing(false);
     };
-  }, [increaseLogoQuality, logoDataUrl, onLogoDataUrlChange, removeWhiteBg]);
+  }, [activeLogoDataUrl, activeLogoPlacement, increaseLogoQuality, onUpsertActiveLogo, removeWhiteBg]);
 
   function handleLogoFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
-    if (!f) {
-      onLogoDataUrlChange(null);
-      return;
-    }
+    if (!f) return;
     processLogoFile(f);
     e.target.value = "";
   }
@@ -579,19 +603,21 @@ export function ControlsPanel({
 
   function clearLogo() {
     if (isLogoProcessing) return;
-    onLogoDataUrlChange(null);
+    const id = activeLogoId ?? logos[0]?.id ?? null;
+    if (id) onRemoveLogo(id);
     if (fileRef.current) fileRef.current.value = "";
   }
 
   function setDecalPartial(patch: Partial<DecalConfig>) {
-    onDecalChange({
-      position: patch.position ?? decal.position,
-      rotation: patch.rotation ?? decal.rotation,
-      scale: patch.scale ?? decal.scale,
+    if (!activeDecal) return;
+    onActiveDecalChange({
+      position: patch.position ?? activeDecal.position,
+      rotation: patch.rotation ?? activeDecal.rotation,
+      scale: patch.scale ?? activeDecal.scale,
     });
   }
 
-  const rotateDeg = Math.round((decal.rotation[2] * 180) / Math.PI);
+  const rotateDeg = Math.round(((activeDecal?.rotation?.[2] ?? 0) * 180) / Math.PI);
 
   return (
     <aside className="flex h-auto min-h-0 flex-col gap-4 overflow-visible rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:gap-5 sm:p-5 md:h-full md:overflow-y-auto hide-scrollbar">
@@ -726,7 +752,7 @@ export function ControlsPanel({
       <div className="flex flex-col gap-2">
         <div className="flex flex-col gap-2">
           <span className="text-xs font-medium uppercase tracking-wide text-gray-400">
-            Logo (PNG / JPG / SVG)
+            Logos (max {MAX_LOGOS})
           </span>
           {/* Background removal toggle */}
           <div className={`flex items-center gap-3 text-xs text-gray-400 select-none ${isLogoProcessing ? "opacity-60 pointer-events-none" : ""}`}>
@@ -808,7 +834,49 @@ export function ControlsPanel({
           />
         </div>
 
-        {logoDataUrl ? (
+        {/* Logo slots */}
+        <div className="flex flex-col gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-medium text-gray-500">
+              {logos.length}/{MAX_LOGOS} added
+            </span>
+          </div>
+
+          {logos.length ? (
+            <div className="flex flex-wrap gap-2">
+              {logos.map((l) => {
+                const active = l.id === (activeLogoId ?? logos[0]?.id);
+                return (
+                  <button
+                    key={l.id}
+                    type="button"
+                    disabled={isLogoProcessing}
+                    onClick={() => onActiveLogoIdChange(l.id)}
+                    className={`relative h-12 w-12 overflow-hidden rounded-lg border transition ${active ? "border-blue-500 bg-blue-50/40" : "border-white/10 bg-white/5 hover:bg-white/10"}`}
+                    title={l.placement}
+                    style={{
+                      backgroundImage:
+                        "repeating-conic-gradient(#3f3f46 0% 25%, #27272a 0% 50%)",
+                      backgroundSize: "12px 12px",
+                    }}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={l.dataUrl} alt="" className="h-full w-full object-contain" />
+                    {active ? (
+                      <span className="absolute left-1 top-1 rounded bg-blue-600/90 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                        Active
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-xs text-gray-400">Upload up to 4 logos and choose placement per logo.</p>
+          )}
+        </div>
+
+        {activeLogoDataUrl ? (
           <>
             {/* Logo preview — checkerboard behind it shows transparency */}
             <div
@@ -829,7 +897,7 @@ export function ControlsPanel({
               ) : null}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={logoDataUrl}
+                src={activeLogoDataUrl}
                 alt="Logo preview"
                 className="h-full w-full object-contain"
               />
@@ -897,7 +965,8 @@ export function ControlsPanel({
             onChange={(e) => {
               const deg = Number(e.target.value);
               const rad = (deg * Math.PI) / 180;
-              const next: [number, number, number] = [...decal.rotation];
+              if (!activeDecal) return;
+              const next: [number, number, number] = [...activeDecal.rotation];
               next[2] = rad;
               setDecalPartial({ rotation: next });
             }}
@@ -915,14 +984,14 @@ export function ControlsPanel({
             min={0.05}
             max={1}
             step={0.005}
-            value={decal.scale}
+            value={activeDecal?.scale ?? 0.22}
             onChange={(e) =>
               setDecalPartial({ scale: Number(e.target.value) })
             }
             className="flex-1 accent-blue-500"
           />
           <span className="w-10 text-right font-mono text-gray-600/80">
-            {Math.round(decal.scale * 100)}%
+            {Math.round((activeDecal?.scale ?? 0.22) * 100)}%
           </span>
         </label>
       </div>
@@ -930,14 +999,24 @@ export function ControlsPanel({
       <div className="mt-auto flex flex-col gap-2 border-t border-gray-200 pt-4">
         <button
           type="button"
+          disabled={isCopyingShare}
           onClick={() => {
-            void onCopyShare();
-            setCopied(true);
-            window.setTimeout(() => setCopied(false), 1800);
+            if (isCopyingShare) return;
+            setIsCopyingShare(true);
+            (async () => {
+              const res = await onCopyShare();
+              if (!res.ok) {
+                alert("Could not copy the share link. Please try again.");
+                return;
+              }
+              setCopied(true);
+              window.setTimeout(() => setCopied(false), 1800);
+            })()
+              .finally(() => setIsCopyingShare(false));
           }}
-          className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-500"
+          className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {copied ? "Copied!" : "Copy share link"}
+          {isCopyingShare ? "Creating link…" : copied ? "Copied!" : "Copy share link"}
         </button>
         <button
           type="button"

@@ -36,10 +36,13 @@ export default function Configurator({ shareId }: { shareId?: string }) {
   const {
     productName,
     productKey,
-    logoDataUrl,
-    setLogoDataUrl,
-    decal,
-    setDecal,
+    logos,
+    activeLogoId,
+    setActiveLogoId,
+    addLogo,
+    upsertActiveLogo,
+    removeLogo,
+    setLogoDecal,
     isLogoPlacementMode,
     setIsLogoPlacementMode,
     libraryQuery,
@@ -72,8 +75,10 @@ export default function Configurator({ shareId }: { shareId?: string }) {
   }, [searchParams, shareId, syncModelIdFromUrl]);
 
   const onDecalChange = useCallback((next: DecalConfig) => {
-    setDecal(next);
-  }, [setDecal]);
+    const active = activeLogoId ?? logos[0]?.id ?? null;
+    if (!active) return;
+    setLogoDecal(active, next);
+  }, [activeLogoId, logos, setLogoDecal]);
 
   return (
     <main className="mx-auto flex w-full max-w-[1600px] flex-1 min-h-0 flex-col gap-4 p-3 sm:p-4 md:h-full md:flex-row md:gap-6 md:p-6">
@@ -90,12 +95,19 @@ export default function Configurator({ shareId }: { shareId?: string }) {
             onSearchLibrary={searchLibrary}
             selectedModelId={selectedModelId}
             onSelectModel={selectModel}
-            logoDataUrl={logoDataUrl}
-            onLogoDataUrlChange={setLogoDataUrl}
+            logos={logos}
+            activeLogoId={activeLogoId}
+            onActiveLogoIdChange={setActiveLogoId}
+            onAddLogo={addLogo}
+            onUpsertActiveLogo={upsertActiveLogo}
+            onRemoveLogo={removeLogo}
             isLogoPlacementMode={isLogoPlacementMode}
             onLogoPlacementModeChange={setIsLogoPlacementMode}
-            decal={decal}
-            onDecalChange={onDecalChange}
+            activeDecal={(() => {
+              const id = activeLogoId ?? logos[0]?.id ?? null;
+              return id ? (logos.find((l) => l.id === id)?.decal ?? null) : null;
+            })()}
+            onActiveDecalChange={onDecalChange}
             onCopyShare={copyShareLink}
             captureElementId={CAPTURE_ID}
           />
@@ -106,9 +118,9 @@ export default function Configurator({ shareId }: { shareId?: string }) {
           captureId={CAPTURE_ID}
           title={productName}
           variant="interactive"
-          logoDataUrl={logoDataUrl}
-          decal={decal}
-          onDecalChange={isSharedView ? undefined : onDecalChange}
+          logos={logos}
+          activeLogoId={activeLogoId}
+          onLogoDecalChange={isSharedView ? undefined : setLogoDecal}
           isLogoPlacementMode={isLogoPlacementMode}
           allowDefaultModel={false}
           modelUrl={modelUrl ?? undefined}
@@ -148,9 +160,9 @@ export default function Configurator({ shareId }: { shareId?: string }) {
                 title={undefined}
                 variant="flat"
                 dpr={2}
-                logoDataUrl={logoDataUrl}
-                decal={decal}
-                onDecalChange={undefined}
+                logos={logos}
+                activeLogoId={activeLogoId}
+                onLogoDecalChange={undefined}
                 isLogoPlacementMode={false}
                 allowDefaultModel={false}
                 modelUrl={modelUrl ?? undefined}

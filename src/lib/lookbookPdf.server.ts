@@ -20,11 +20,18 @@ type LogoPositionLike = {
   rotation?: number;
 };
 
+type LogoPositionsLike = Record<string, LogoPositionLike>;
+
 type ImageRecord = {
   id: string;
   url: string;
   title?: string | null;
   logo_position: LogoPositionLike;
+  /**
+   * Optional multi-logo layout.
+   * When present, we stamp the (chosen) logo onto every position.
+   */
+  logo_positions?: LogoPositionsLike | null;
 };
 
 type PageRecord = {
@@ -51,6 +58,17 @@ function normPos(pos: unknown): LogoPositionLike {
     height: typeof p.height === "number" ? p.height : F.height,
     rotation: typeof p.rotation === "number" ? p.rotation : F.rotation,
   };
+}
+
+function normPositions(posRaw: unknown): LogoPositionsLike | null {
+  const rec = asRec(posRaw);
+  if (!rec) return null;
+  const out: LogoPositionsLike = {};
+  for (const [k, v] of Object.entries(rec)) {
+    // Be permissive; ignore keys whose values aren't objects with numeric-ish fields.
+    out[k] = normPos(v);
+  }
+  return Object.keys(out).length ? out : null;
 }
 
 function parsePages(raw: unknown): PageRecord[] {
@@ -85,8 +103,9 @@ function parsePages(raw: unknown): PageRecord[] {
               : typeof i["caption"] === "string"
                 ? (i["caption"] as string)
                 : null;
+          const logo_positions = normPositions(i["logo_positions"] ?? i["logoPositions"] ?? i["logo_pos_list"]);
           const logo_position = normPos(i["logo_position"] ?? i["logoPosition"] ?? i["logo_pos"]);
-          return { id: String(i["id"] ?? `${pi}-${ii}`), url, title, logo_position };
+          return { id: String(i["id"] ?? `${pi}-${ii}`), url, title, logo_position, logo_positions };
         })
         .filter(Boolean) as ImageRecord[];
 
@@ -266,6 +285,37 @@ async function pickBestVariantIdx(
   return bestIdx;
 }
 
+function positionsForImage(img: ImageRecord): LogoPositionLike[] {
+  const rec = img.logo_positions;
+  if (rec && typeof rec === "object") {
+    const vals = Object.values(rec).filter(Boolean);
+    if (vals.length) return vals;
+  }
+  return [img.logo_position];
+}
+
+async function pickBestVariantIdxForImage(
+  imageBuffer: Buffer,
+  img: ImageRecord,
+  brandBg: string,
+): Promise<number> {
+  const positions = positionsForImage(img);
+  if (positions.length <= 1) return await pickBestVariantIdx(imageBuffer, positions[0]!, brandBg);
+
+  // If multiple stamps are needed, pick the "most common" best variant across positions.
+  const votes = new Map<number, number>();
+  for (const p of positions) {
+    const idx = await pickBestVariantIdx(imageBuffer, p, brandBg);
+    votes.set(idx, (votes.get(idx) ?? 0) + 1);
+  }
+  let bestIdx = 0;
+  let bestVotes = -1;
+  for (const [idx, v] of votes.entries()) {
+    if (v > bestVotes) { bestVotes = v; bestIdx = idx; }
+  }
+  return bestIdx;
+}
+
 // ─── Image compositing (sharp) ────────────────────────────────────────────────
 
 async function compositeJpeg(
@@ -331,6 +381,80 @@ async function compositeJpeg(
 
   return sharp(scaledImg)
     .composite([{ input: compositeInput, left, top }])
+    .jpeg({ quality: 82 })
+    .toBuffer();
+}
+
+async function compositeJpegMulti(
+  imageBuffer: Buffer,
+  logoBuffer: Buffer,
+  positions: LogoPositionLike[],
+  maxPx = 900,
+): Promise<Buffer> {
+  if (positions.length <= 1) {
+    return compositeJpeg(imageBuffer, logoBuffer, positions[0] ?? {}, maxPx);
+  }
+
+  // Scale base image once, then apply all overlays in the same scaled coordinate space.
+  const meta = await sharp(imageBuffer).metadata();
+  const imgW = meta.width ?? 1;
+  const imgH = meta.height ?? 1;
+
+  const scale = Math.min(1, maxPx / Math.max(imgW, imgH));
+  const outW = Math.max(1, Math.round(imgW * scale));
+  const outH = Math.max(1, Math.round(imgH * scale));
+
+  const scaledImg = await sharp(imageBuffer).resize(outW, outH).toBuffer();
+
+  const overlays: Parameters<ReturnType<typeof sharp>["composite"]>[0] = [];
+  for (const pos of positions) {
+    const lx = Math.max(0, Math.round(normUnit(pos.x, 0.66) * outW));
+    const ly = Math.max(0, Math.round(normUnit(pos.y, 0.08) * outH));
+    const lw = Math.max(1, Math.round(normUnit(pos.width, 0.26) * outW));
+    const lh = Math.max(1, Math.round(normUnit(pos.height, 0.18) * outH));
+    const rotation = typeof pos.rotation === "number" ? pos.rotation : 0;
+
+    const logoResized = await sharp(logoBuffer)
+      .resize(lw, lh, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
+      .png()
+      .toBuffer();
+
+    let compositeInput: Buffer;
+    let left = Math.max(0, lx);
+    let top = Math.max(0, ly);
+
+    if (Math.abs(rotation) > 0.5) {
+      const diagSize = Math.ceil(Math.sqrt(lw * lw + lh * lh)) + 4;
+      const centeredCanvas = await sharp({
+        create: { width: diagSize, height: diagSize, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+      })
+        .composite([{
+          input: logoResized,
+          left: Math.floor((diagSize - lw) / 2),
+          top: Math.floor((diagSize - lh) / 2),
+        }])
+        .png()
+        .toBuffer();
+
+      compositeInput = await sharp(centeredCanvas)
+        .rotate(rotation, { background: { r: 0, g: 0, b: 0, alpha: 0 } })
+        .png()
+        .toBuffer();
+
+      const rotMeta = await sharp(compositeInput).metadata();
+      const rotW = rotMeta.width ?? diagSize;
+      const rotH = rotMeta.height ?? diagSize;
+      left = Math.max(0, Math.round(lx + lw / 2 - rotW / 2));
+      top  = Math.max(0, Math.round(ly + lh / 2 - rotH / 2));
+    } else {
+      compositeInput = logoResized;
+    }
+
+    overlays.push({ input: compositeInput, left, top });
+  }
+
+  return sharp(scaledImg)
+    .composite(overlays)
     .jpeg({ quality: 82 })
     .toBuffer();
 }
@@ -536,7 +660,7 @@ async function buildPreviewImage(
       if (!imgBuf || !logoBuf) throw new Error("missing buffers");
 
       // Composite at preview-appropriate resolution
-      const jpegBuf = await compositeJpeg(imgBuf, logoBuf, img.logo_position, 500);
+      const jpegBuf = await compositeJpegMulti(imgBuf, logoBuf, positionsForImage(img), 500);
 
       // Scale to fit inside the tile, preserving aspect ratio
       const fitted = await sharp(jpegBuf)
@@ -655,7 +779,7 @@ export async function generateLookbook(input: {
     }
 
     // Pick variant index
-    const varIdx = await pickBestVariantIdx(imgBuf, img.logo_position, brandBg);
+    const varIdx = await pickBestVariantIdxForImage(imgBuf, img, brandBg);
     const varUrl = brand.logoVariants[varIdx] ?? brand.logoVariants[0];
     if (!varUrl) { logoForImage.set(img.url, null); continue; }
 
@@ -678,7 +802,7 @@ export async function generateLookbook(input: {
     const imgBuf  = imgBufCache.get(img.url);
     const logoBuf = logoForImage.get(img.url) ?? fallbackLogoBuf;
     if (!imgBuf || !logoBuf) throw new Error(`Missing buffers for ${img.url}`);
-    return compositeJpeg(imgBuf, logoBuf, img.logo_position, 900);
+    return compositeJpegMulti(imgBuf, logoBuf, positionsForImage(img), 900);
   });
 
   // 6. Preview = first page of the PDF rendered as a PNG image
